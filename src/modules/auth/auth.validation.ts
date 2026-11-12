@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { prospectBodySchema } from "../onboarding/onboarding.validation.js";
 
 const email = z.email("Enter a valid email address").max(255).transform((v) => v.trim().toLowerCase());
 
@@ -19,6 +20,8 @@ export const registerSchema = z.object({
   fullName: z.string().trim().min(2, "Enter your full name").max(150),
   email,
   password: passwordSchema,
+  /** The company joining; becomes a lead client with an onboarding case. */
+  company: prospectBodySchema.omit({ notes: true }),
 });
 
 export const forgotPasswordSchema = z.object({ email });

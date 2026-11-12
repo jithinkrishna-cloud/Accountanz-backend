@@ -3,6 +3,7 @@ export interface ClientContext {
   userId: number;
   clientId: number;
   clientName: string;
+  clientStatus: string;
   role: "owner" | "member";
   canApprove: boolean;
 }

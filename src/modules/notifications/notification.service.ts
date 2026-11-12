@@ -3,7 +3,7 @@
  * They never throw: callers fire them after their transaction commits (`void notifyX(...)`), so a mail
  * problem can't undo or slow down the action. Idempotency keys stop duplicates on retries.
  */
-import { approvalDecidedEmail, clientMessageEmail, documentReceivedEmail, invoiceIssuedEmail, taskAssignedEmail, taskReviewedEmail, taskSubmittedEmail } from "../../emails/templates.js";
+import { approvalDecidedEmail, clientMessageEmail, companyRegisteredEmail, documentReceivedEmail, invoiceIssuedEmail, taskAssignedEmail, taskReviewedEmail, taskSubmittedEmail } from "../../emails/templates.js";
 import { logger } from "../../utils/logger.js";
 import { sendMail } from "../../utils/mailer.js";
 import { findTask } from "../tasks/task.repository.js";
@@ -108,5 +108,16 @@ export const notifyClientMessage = (clientId: number, d: { clientName: string; s
     for (const m of team) {
       const content = clientMessageEmail({ recipientName: m.full_name, clientName: d.clientName, author: d.author, subject: d.subject, body: d.body });
       await sendMail({ to: m.email, ...content, idempotencyKey: `client-message/${d.threadId}/${d.messageId ?? "first"}/${m.email}` });
+    }
+  });
+
+/** A company registered itself on the platform: every admin hears so someone picks up the assessment. */
+export const notifyCompanyRegistered = (caseId: number) =>
+  safely("company-registered", async () => {
+    const r = await repo.findRegistrationForEmail(caseId);
+    if (!r) return;
+    for (const a of await repo.listAdminContacts()) {
+      const content = companyRegisteredEmail({ adminName: a.full_name, company: r.company, gstin: r.gstin, state: r.state, ownerName: r.owner_name, ownerEmail: r.owner_email });
+      await sendMail({ to: a.email, ...content, idempotencyKey: `company-registered/${caseId}/${a.email}` });
     }
   });

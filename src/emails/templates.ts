@@ -212,3 +212,20 @@ export function clientMessageEmail(d: { recipientName: string; clientName: strin
     text: plainText(`Hi ${d.recipientName},`, `${d.author} from ${d.clientName} wrote about "${d.subject}":`, d.body),
   };
 }
+
+export function companyRegisteredEmail(d: { adminName: string; company: string; gstin: string | null; state: string | null; ownerName: string; ownerEmail: string }): EmailContent {
+  const url = appUrl("/admin/onboarding");
+  return {
+    subject: `New company registered: ${d.company}`,
+    html: layout({
+      title: "A new company joined Accountanz",
+      preheader: `${d.ownerName} registered ${d.company}. It's waiting in Onboarding.`,
+      body:
+        paragraph(`Hi ${d.adminName},`) +
+        paragraph(`${d.ownerName} registered ${d.company} on the platform. It is a new prospect at the Registered stage, ready for assessment.`) +
+        facts([["Company", d.company], ["GSTIN", d.gstin], ["State", d.state], ["Owner", `${d.ownerName} (${d.ownerEmail})`]]) +
+        button("Open Onboarding", url),
+    }),
+    text: plainText(`Hi ${d.adminName},`, `${d.ownerName} (${d.ownerEmail}) registered ${d.company} on the platform. It is waiting at the Registered stage.`, `Open Onboarding: ${url}`),
+  };
+}

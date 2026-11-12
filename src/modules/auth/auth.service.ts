@@ -10,6 +10,9 @@ import { inviteEmail, passwordChangedEmail, passwordResetEmail } from "../../ema
 import { humanize } from "../../utils/format.js";
 import { sendMail } from "../../utils/mailer.js";
 import { recordAudit } from "../audit/audit.service.js";
+import { linkClientUser } from "../clients/client.repository.js";
+import { notifyCompanyRegistered } from "../notifications/notification.service.js";
+import { openProspect } from "../onboarding/onboarding.service.js";
 import { findUserByEmail, findUserById, insertUser, isRejectedStaff, setPassword, touchLastLogin } from "../users/user.repository.js";
 import type { PublicUser, UserRow } from "../users/user.types.js";
 import * as repo from "./auth.repository.js";
@@ -54,21 +57,34 @@ export async function login(input: LoginInput): Promise<{ user: PublicUser; sess
 }
 
 /**
- * Self-service sign-up creates a client-portal owner with no company linked yet,
- * matching the existing app ("No company linked to your account yet").
+ * A company joins through the platform: the person becomes the owner of a new lead client whose
+ * onboarding case starts at "registered", exactly as if an admin had added the prospect. Admins are e-mailed.
  */
 export async function register(input: RegisterInput): Promise<{ user: PublicUser; session: IssuedSession }> {
-  if (await findUserByEmail(input.email)) throw AppError.conflict("An account with this email already exists");
+  if (await findUserByEmail(input.email)) {
+    const message = "An account with this email already exists";
+    throw new AppError("CONFLICT", message, { fieldErrors: { email: [message] } });
+  }
   const passwordHash = await hashPassword(input.password);
-  return withTransaction(async (conn) => {
+  const result = await withTransaction(async (conn) => {
     const id = await insertUser(
       { email: input.email, fullName: input.fullName, role: "client_owner", passwordHash, status: "active" },
       conn,
     );
     const user = (await findUserById(id, conn))!;
-    await recordAudit(toAuthUser(user), { action: "Account registered", entityType: "User", entityId: id }, conn);
-    return { user: toPublicUser(user), session: await issueSession(user, conn) };
+    const actor = toAuthUser(user);
+    await recordAudit(actor, { action: "Account registered", entityType: "User", entityId: id }, conn);
+    const { clientId, caseId } = await openProspect(
+      actor,
+      { ...input.company, notes: `Registered on the Accountanz platform by ${input.fullName} (${input.email}).` },
+      conn,
+      "Company registered",
+    );
+    await linkClientUser(clientId, id, "owner", true, conn);
+    return { user: toPublicUser(user), session: await issueSession(user, conn), caseId };
   });
+  void notifyCompanyRegistered(result.caseId);
+  return { user: result.user, session: result.session };
 }
 
 /**

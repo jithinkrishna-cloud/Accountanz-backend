@@ -9,8 +9,8 @@ import { activeAssignmentSql } from "../access/client-access.js";
 type Db = PoolConnection | typeof pool;
 
 export function findMembership(userId: number) {
-  return queryOne<{ client_id: number; client_name: string; role: "owner" | "member"; can_approve: 0 | 1 }>(
-    `SELECT cu.client_id, COALESCE(c.trade_name, c.legal_name) AS client_name, cu.role, cu.can_approve
+  return queryOne<{ client_id: number; client_name: string; client_status: string; role: "owner" | "member"; can_approve: 0 | 1 }>(
+    `SELECT cu.client_id, COALESCE(c.trade_name, c.legal_name) AS client_name, c.status AS client_status, cu.role, cu.can_approve
        FROM client_users cu JOIN clients c ON c.id = cu.client_id
       WHERE cu.user_id = ? AND c.status <> 'exited'
       ORDER BY cu.role = 'owner' DESC, cu.client_id

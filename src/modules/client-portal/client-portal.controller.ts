@@ -21,7 +21,7 @@ async function sendFile(res: Response, { file, name }: { file: StoredFile; name:
 /** Works without a linked company: tells the frontend which state to show. */
 export async function context(req: Request, res: Response) {
   const c = await service.findContext(req.user!);
-  res.json({ company: c ? { id: c.clientId, name: c.clientName, role: c.role, can_approve: c.canApprove } : null });
+  res.json({ company: c ? { id: c.clientId, name: c.clientName, status: c.clientStatus, role: c.role, can_approve: c.canApprove } : null });
 }
 
 export const dashboard = async (_req: Request, res: Response) => void res.json(await service.getDashboard(ctx(res)));

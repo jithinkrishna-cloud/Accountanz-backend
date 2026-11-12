@@ -36,3 +36,17 @@ export const listClientTeamContacts = (clientId: number) =>
       WHERE a.client_id = ? AND ${activeAssignmentSql("a")} AND u.status = 'active'`,
     [clientId],
   );
+
+/** Active admins (who hear about companies registering themselves). */
+export const listAdminContacts = () =>
+  query<Contact>(`SELECT email, full_name FROM users WHERE portal_role IN ('super_admin', 'ops_admin') AND status = 'active'`);
+
+export function findRegistrationForEmail(caseId: number) {
+  return queryOne<{ company: string; gstin: string | null; state: string | null; owner_name: string; owner_email: string }>(
+    `SELECT COALESCE(c.trade_name, c.legal_name) AS company, c.gstin, c.state, u.full_name AS owner_name, u.email AS owner_email
+       FROM onboarding_cases oc JOIN clients c ON c.id = oc.client_id
+       JOIN client_users cu ON cu.client_id = c.id AND cu.role = 'owner' JOIN users u ON u.id = cu.user_id
+      WHERE oc.id = ? ORDER BY cu.user_id LIMIT 1`,
+    [caseId],
+  );
+}

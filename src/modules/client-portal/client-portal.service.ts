@@ -16,7 +16,7 @@ const currentPeriod = () => {
 /** The client company behind this login, or null when nobody has linked one yet. */
 export async function findContext(user: AuthUser): Promise<ClientContext | null> {
   const m = await repo.findMembership(user.id);
-  return m ? { userId: user.id, clientId: m.client_id, clientName: m.client_name, role: m.role, canApprove: m.role === "owner" || Boolean(m.can_approve) } : null;
+  return m ? { userId: user.id, clientId: m.client_id, clientName: m.client_name, clientStatus: m.client_status, role: m.role, canApprove: m.role === "owner" || Boolean(m.can_approve) } : null;
 }
 
 export async function requireContext(user: AuthUser): Promise<ClientContext> {

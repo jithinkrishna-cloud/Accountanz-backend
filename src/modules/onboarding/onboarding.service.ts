@@ -1,3 +1,4 @@
+import type { PoolConnection } from "mysql2/promise";
 import { withTransaction } from "../../database/connection.js";
 import type { AuthUser } from "../../types/auth.types.js";
 import { AppError } from "../../utils/app-error.js";
@@ -21,18 +22,26 @@ export async function getCase(id: number) {
   return row;
 }
 
-/** Adds a prospect: the client is created as a lead and its onboarding case starts at "registered". */
+/**
+ * The one place a prospect is opened: the client is created as a lead and its onboarding case starts at
+ * "registered". Used when an admin adds a prospect and when a company registers itself on the platform.
+ */
+export async function openProspect(actor: AuthUser, input: ProspectInput, conn: PoolConnection, action = "Prospect added") {
+  if (input.gstin && (await clientRepo.findClientByGstin(input.gstin))) {
+    const message = "Another client already uses this GSTIN";
+    throw new AppError("CONFLICT", message, { fieldErrors: { gstin: [message] } });
+  }
+  const clientId = await clientRepo.insertClient(
+    { legal_name: input.legal_name, trade_name: input.trade_name, gstin: input.gstin, pan: input.pan, state: input.state, address: null, status: "lead", accounting_software: "none" },
+    conn,
+  );
+  const caseId = await repo.insertCase(clientId, input.notes, conn);
+  await recordAudit(actor, { action, entityType: "OnboardingCase", entityId: caseId, clientId, details: input.legal_name }, conn);
+  return { clientId, caseId };
+}
+
 export async function createProspect(actor: AuthUser, input: ProspectInput) {
-  if (input.gstin && (await clientRepo.findClientByGstin(input.gstin))) throw AppError.conflict("Another client already uses this GSTIN");
-  const caseId = await withTransaction(async (conn) => {
-    const clientId = await clientRepo.insertClient(
-      { legal_name: input.legal_name, trade_name: input.trade_name, gstin: input.gstin, pan: input.pan, state: input.state, address: null, status: "lead", accounting_software: "none" },
-      conn,
-    );
-    const id = await repo.insertCase(clientId, input.notes, conn);
-    await recordAudit(actor, { action: "Prospect added", entityType: "OnboardingCase", entityId: id, clientId, details: input.legal_name }, conn);
-    return id;
-  });
+  const { caseId } = await withTransaction((conn) => openProspect(actor, input, conn));
   return getCase(caseId);
 }
 
