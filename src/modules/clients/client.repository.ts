@@ -3,7 +3,7 @@ import { activeAssignmentSql } from "../access/client-access.js";
 import { execute, pool, query, queryOne, type Param } from "../../database/connection.js";
 import { offsetOf, type Paged } from "../../utils/pagination.js";
 import type { ClientBranchRow, ClientDetail, ClientRow } from "./client.types.js";
-import type { ClientInput, ClientListQuery, ClientUpdateInput } from "./client.validation.js";
+import type { BranchInput, ClientInput, ClientListQuery, ClientUpdateInput } from "./client.validation.js";
 
 type Db = PoolConnection | typeof pool;
 
@@ -82,4 +82,30 @@ export async function updateClient(id: number, input: ClientUpdateInput, db: Db 
 
 export async function linkClientUser(clientId: number, userId: number, role: "owner" | "member", canApprove: boolean, db: Db) {
   await execute(`INSERT INTO client_users (client_id, user_id, role, can_approve) VALUES (?, ?, ?, ?)`, [clientId, userId, role, role === "owner" || canApprove], db);
+}
+
+// ── Branches ──
+export const findBranch = (clientId: number, branchId: number, db: Db = pool) =>
+  queryOne<ClientBranchRow>(`SELECT id, name, gstin, external_branch_ref FROM client_branches WHERE id = ? AND client_id = ?`, [branchId, clientId], db);
+
+/** Another client (its own GSTIN or one of its branches) already registered under this GSTIN. */
+export const findOtherClientWithGstin = (gstin: string, clientId: number) =>
+  queryOne<{ id: number }>(
+    `SELECT id FROM clients WHERE gstin = ? AND id <> ?
+     UNION SELECT client_id AS id FROM client_branches WHERE gstin = ? AND client_id <> ?
+     LIMIT 1`,
+    [gstin, clientId, gstin, clientId],
+  );
+
+export async function insertBranch(clientId: number, input: BranchInput, db: Db) {
+  const r = await execute(`INSERT INTO client_branches (client_id, name, gstin, external_branch_ref) VALUES (?, ?, ?, ?)`, [clientId, input.name, input.gstin, input.external_branch_ref], db);
+  return r.insertId;
+}
+
+export async function updateBranch(branchId: number, input: BranchInput, db: Db) {
+  await execute(`UPDATE client_branches SET name = ?, gstin = ?, external_branch_ref = ? WHERE id = ?`, [input.name, input.gstin, input.external_branch_ref, branchId], db);
+}
+
+export async function deleteBranch(branchId: number, db: Db) {
+  await execute(`DELETE FROM client_branches WHERE id = ?`, [branchId], db);
 }

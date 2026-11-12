@@ -9,7 +9,7 @@ import type { AuthUser } from "../../types/auth.types.js";
 import { AppError } from "../../utils/app-error.js";
 import { recordAudit } from "../audit/audit.service.js";
 import * as repo from "./client.repository.js";
-import type { ClientInput, ClientListQuery, ClientUpdateInput, InviteClientUserInput } from "./client.validation.js";
+import type { BranchInput, ClientInput, ClientListQuery, ClientUpdateInput, InviteClientUserInput } from "./client.validation.js";
 
 export const listClients = (q: ClientListQuery) => repo.listClients(q);
 
@@ -80,4 +80,53 @@ export async function inviteClientUser(actor: AuthUser, clientId: number, input:
   const content = inviteEmail({ inviteeName: input.full_name, inviterName: `${actor.fullName} (Accountanz)`, roleLabel: `${input.role === "owner" ? "owner" : "team member"} for ${company}`, url, validDays: CLIENT_INVITE_DAYS });
   const mail = await sendMail({ to: input.email, ...content, idempotencyKey: `invite/${userId}/${sha256(token).slice(0, 16)}` });
   return { client: await getClient(clientId), invite_url: url, email_sent: mail.sent };
+}
+
+// ── Branches ──
+async function assertBranchGstinFree(clientId: number, gstin: string | null) {
+  if (!gstin) return;
+  if (await repo.findOtherClientWithGstin(gstin, clientId)) {
+    const message = "Another client already uses this GSTIN";
+    throw new AppError("CONFLICT", message, { fieldErrors: { gstin: [message] } });
+  }
+}
+
+async function requireOpenClient(clientId: number) {
+  const client = await repo.findClientById(clientId);
+  if (!client) throw AppError.notFound("Client");
+  if (client.status === "exited") throw AppError.conflict("This client has exited; its branches can't be changed");
+  return client;
+}
+
+export async function addBranch(actor: AuthUser, clientId: number, input: BranchInput) {
+  await requireOpenClient(clientId);
+  await assertBranchGstinFree(clientId, input.gstin);
+  await withTransaction(async (conn) => {
+    const id = await repo.insertBranch(clientId, input, conn);
+    await recordAudit(actor, { action: "Branch added", entityType: "ClientBranch", entityId: id, clientId, details: input.name }, conn);
+  });
+  return getClient(clientId);
+}
+
+export async function updateBranch(actor: AuthUser, clientId: number, branchId: number, input: BranchInput) {
+  await requireOpenClient(clientId);
+  if (!(await repo.findBranch(clientId, branchId))) throw AppError.notFound("Branch");
+  await assertBranchGstinFree(clientId, input.gstin);
+  await withTransaction(async (conn) => {
+    await repo.updateBranch(branchId, input, conn);
+    await recordAudit(actor, { action: "Branch updated", entityType: "ClientBranch", entityId: branchId, clientId, details: input.name }, conn);
+  });
+  return getClient(clientId);
+}
+
+/** Nothing else references a branch yet, so removal is a plain delete (audited). */
+export async function removeBranch(actor: AuthUser, clientId: number, branchId: number) {
+  await requireOpenClient(clientId);
+  const branch = await repo.findBranch(clientId, branchId);
+  if (!branch) throw AppError.notFound("Branch");
+  await withTransaction(async (conn) => {
+    await repo.deleteBranch(branchId, conn);
+    await recordAudit(actor, { action: "Branch removed", entityType: "ClientBranch", entityId: branchId, clientId, details: branch.name }, conn);
+  });
+  return getClient(clientId);
 }

@@ -1,7 +1,7 @@
 export const CLIENT_STATUSES = ["lead", "onboarding", "active", "paused", "exited"] as const;
 export type ClientStatus = (typeof CLIENT_STATUSES)[number];
 
-export const ACCOUNTING_SOFTWARE = ["journl", "zoho_books", "none"] as const;
+export const ACCOUNTING_SOFTWARE = ["journl", "none"] as const;
 export type AccountingSoftware = (typeof ACCOUNTING_SOFTWARE)[number];
 
 export interface ClientRow {

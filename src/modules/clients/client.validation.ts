@@ -32,3 +32,16 @@ export const inviteClientUserSchema = z.object({
   can_approve: z.boolean().default(false),
 });
 export type InviteClientUserInput = z.infer<typeof inviteClientUserSchema>;
+
+/** A branch / additional place of business. Same-state branches may share the company's GSTIN. */
+export const branchBodySchema = z.object({
+  name: z.string().trim().min(2, "Enter the branch name").max(150),
+  gstin: gstinSchema,
+  external_branch_ref: optionalText(60),
+});
+export const branchParamsSchema = z.object({
+  id: z.coerce.number().int().positive(),
+  branchId: z.coerce.number().int().positive(),
+});
+export type BranchInput = z.infer<typeof branchBodySchema>;
+export type BranchParams = z.infer<typeof branchParamsSchema>;

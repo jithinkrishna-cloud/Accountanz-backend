@@ -127,9 +127,9 @@ async function main() {
       ["ABC Traders Pvt Ltd", "ABC Traders", "32ABCDE1234F1Z5", "ABCDE1234F", "Kerala", "active", "journl", growth, 48000],
       ["Kaveri Constructions Pvt Ltd", "Kaveri Constructions", "29AAFCC2233R1Z8", "AAFCC2233R", "Karnataka", "active", "journl", basic, 25000],
       ["Zenith Pharma Distributors", "Zenith Pharma", "36AAGCZ9911T1Z5", "AAGCZ9911T", "Telangana", "active", "journl", basic, 25000],
-      ["Bluewave Retail Pvt Ltd", "Bluewave Retail", "29AAECB7788P1ZQ", "AAECB7788P", "Karnataka", "active", "zoho_books", growth, 48000],
+      ["Bluewave Retail Pvt Ltd", "Bluewave Retail", "29AAECB7788P1ZQ", "AAECB7788P", "Karnataka", "active", "journl", growth, 48000],
       ["Sunrise Foods Pvt Ltd", "Sunrise Foods", "33AAHCS4455K1Z2", "AAHCS4455K", "Tamil Nadu", "active", "journl", basic, 25000],
-      ["Meridian Textiles LLP", "Meridian Textiles", "24AAJFM3344N1Z6", "AAJFM3344N", "Gujarat", "active", "zoho_books", basic, 25000],
+      ["Meridian Textiles LLP", "Meridian Textiles", "24AAJFM3344N1Z6", "AAJFM3344N", "Gujarat", "active", "journl", basic, 25000],
       ["Lotus Ayurveda Works", "Lotus Ayurveda", "24AAHCL9012M1Z7", "AAHCL9012M", "Gujarat", "active", "none", basic, 25000],
       ["Nimbus Logistics Pvt Ltd", "Nimbus Logistics", "33AAGCN5678L1Z3", "AAGCN5678L", "Tamil Nadu", "onboarding", "none", null, 0],
       ["XYZ Enterprises", "XYZ Enterprises", null, null, "Maharashtra", "onboarding", "none", null, 0],
@@ -153,7 +153,7 @@ async function main() {
           assessed_by: i % 2 ? null : ops,
           suggested_package_id: i % 2 ? null : growth,
           suggested_monthly_fee: i % 2 ? null : 48000,
-          notes: i % 2 ? null : "Two branches on Zoho Books. Needs GST plus payroll.",
+          notes: i % 2 ? null : "Two branches, books on spreadsheets today. Needs GST plus payroll.",
         });
         continue;
       }
@@ -170,7 +170,7 @@ async function main() {
           client_id: clientId,
           provider: software,
           external_org_name: legal_name,
-          external_org_id: `${software === "journl" ? "JL" : "ZB"}-${trade_name.slice(0, 3).toUpperCase()}-${7700 + i}`,
+          external_org_id: `JL-${trade_name.slice(0, 3).toUpperCase()}-${7700 + i}`,
           status: "connected",
         });
       }

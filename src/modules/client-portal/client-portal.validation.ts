@@ -9,6 +9,11 @@ export const uploadMetaSchema = z.object({
   request_id: z.coerce.number().int().positive().optional().or(z.literal("").transform(() => undefined)),
 });
 
+export const connectJournlSchema = z.object({
+  external_org_name: z.string().trim().min(2, "Enter your JournL organisation name").max(200),
+  external_org_id: z.string().trim().min(2, "Enter your JournL organisation ID").max(100),
+});
+
 export const tasksQuerySchema = z.object({ period: periodSchema.optional() });
 
 export const approvalDecisionSchema = z
@@ -38,3 +43,4 @@ export type UploadMeta = z.infer<typeof uploadMetaSchema>;
 export type ApprovalDecisionInput = z.infer<typeof approvalDecisionSchema>;
 export type NewThreadInput = z.infer<typeof newThreadSchema>;
 export type SettingsInput = z.infer<typeof settingsSchema>;
+export type ConnectJournlInput = z.infer<typeof connectJournlSchema>;

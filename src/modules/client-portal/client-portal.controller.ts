@@ -4,7 +4,7 @@ import type { IdParam } from "../../middleware/validate.js";
 import type { StoredFile } from "../../utils/file-storage.js";
 import * as service from "./client-portal.service.js";
 import type { ClientContext } from "./client-portal.types.js";
-import type { UploadMeta } from "./client-portal.validation.js";
+import type { ConnectJournlInput, UploadMeta } from "./client-portal.validation.js";
 
 /** Set by the router's context middleware: the signed-in user's company. */
 const ctx = (res: Response) => res.locals.client as ClientContext;
@@ -28,6 +28,10 @@ export const dashboard = async (_req: Request, res: Response) => void res.json(a
 export const business = async (_req: Request, res: Response) => void res.json(await service.getBusiness(ctx(res)));
 export const team = async (_req: Request, res: Response) => void res.json({ items: await service.getTeam(ctx(res)) });
 export const software = async (_req: Request, res: Response) => void res.json({ items: await service.getSoftware(ctx(res)) });
+export async function connectJournl(req: Request, res: Response) {
+  res.status(201).json({ items: await service.connectJournl(req.user!, ctx(res), req.body as ConnectJournlInput) });
+}
+
 export const documents = async (_req: Request, res: Response) => void res.json({ items: await service.getDocuments(ctx(res)) });
 export const requests = async (_req: Request, res: Response) => void res.json({ items: await service.getRequests(ctx(res)) });
 export const reports = async (_req: Request, res: Response) => void res.json({ items: await service.getReports(ctx(res)) });

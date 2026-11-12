@@ -7,7 +7,7 @@ import { AppError } from "../../utils/app-error.js";
 import { CLIENT_ROLES } from "../../types/auth.types.js";
 import * as c from "./client-portal.controller.js";
 import { requireContext } from "./client-portal.service.js";
-import { approvalDecisionSchema, newThreadSchema, replySchema, settingsSchema, tasksQuerySchema, uploadMetaSchema } from "./client-portal.validation.js";
+import { approvalDecisionSchema, connectJournlSchema, newThreadSchema, replySchema, settingsSchema, tasksQuerySchema, uploadMetaSchema } from "./client-portal.validation.js";
 
 /** Resolves the signed-in user's company once per request; every handler reads only that company. */
 const withClient: RequestHandler = async (req, res, next) => {
@@ -40,6 +40,7 @@ clientPortalRoutes.get("/dashboard", c.dashboard);
 clientPortalRoutes.get("/business", c.business);
 clientPortalRoutes.get("/team", c.team);
 clientPortalRoutes.get("/software", c.software);
+clientPortalRoutes.post("/software/journl", validate({ body: connectJournlSchema }), c.connectJournl);
 clientPortalRoutes.get("/documents", c.documents);
 clientPortalRoutes.post("/documents", docUpload, uploadMeta, c.upload);
 clientPortalRoutes.get("/documents/:id/file", validate({ params: idParam }), c.downloadDocument);

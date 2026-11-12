@@ -40,3 +40,8 @@ export async function insertConnection(c: CreateConnectionInput, conn: PoolConne
 export async function recordHealthCheck(id: number, status: "connected" | "error", error: string | null, conn: PoolConnection) {
   await execute(`UPDATE integration_connections SET status = ?, last_error = ?, last_health_check = UTC_TIMESTAMP() WHERE id = ?`, [status, error, id], conn);
 }
+
+/** Keeps the client's "accounting software" field in step with its connection. */
+export async function setClientSoftware(clientId: number, software: "journl" | "none", conn: PoolConnection) {
+  await execute(`UPDATE clients SET accounting_software = ? WHERE id = ?`, [software, clientId], conn);
+}

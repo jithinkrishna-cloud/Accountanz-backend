@@ -4,9 +4,10 @@ import { AppError } from "../../utils/app-error.js";
 import { deleteFile, openFile, saveFile } from "../../utils/file-storage.js";
 import { recordAudit } from "../audit/audit.service.js";
 import { notifyApprovalDecided, notifyClientMessage, notifyDocumentReceived } from "../notifications/notification.service.js";
+import { setClientSoftware } from "../integrations/integration.repository.js";
 import * as repo from "./client-portal.repository.js";
 import { NOTIFICATION_PREFS, type ClientContext, type NotificationPrefs } from "./client-portal.types.js";
-import type { ApprovalDecisionInput, NewThreadInput, SettingsInput, UploadMeta } from "./client-portal.validation.js";
+import type { ApprovalDecisionInput, ConnectJournlInput, NewThreadInput, SettingsInput, UploadMeta } from "./client-portal.validation.js";
 
 const currentPeriod = () => {
   const d = new Date();
@@ -37,6 +38,22 @@ export async function getBusiness(ctx: ClientContext) {
 
 export const getTeam = (ctx: ClientContext) => repo.team(ctx.clientId);
 export const getSoftware = (ctx: ClientContext) => repo.software(ctx.clientId);
+
+/**
+ * The company owner links their JournL organisation. It is saved as "pending" until the Accountanz team
+ * verifies access (admin health check), since there is no live JournL API call yet.
+ */
+export async function connectJournl(actor: AuthUser, ctx: ClientContext, input: ConnectJournlInput) {
+  if (ctx.role !== "owner") throw AppError.forbidden("Only the company owner can connect accounting software");
+  await withTransaction(async (conn) => {
+    const existing = await repo.lockJournlConnection(ctx.clientId, conn);
+    if (existing?.status === "connected") throw AppError.conflict("JournL is already connected for your company");
+    const id = await repo.saveJournlConnection(ctx.clientId, existing?.id ?? null, input.external_org_name, input.external_org_id, conn);
+    await setClientSoftware(ctx.clientId, "journl", conn);
+    await recordAudit(actor, { action: "JournL connection requested", entityType: "IntegrationConnection", entityId: id, clientId: ctx.clientId, details: `${input.external_org_name} (${input.external_org_id})` }, conn);
+  });
+  return repo.software(ctx.clientId);
+}
 export const getDocuments = (ctx: ClientContext) => repo.listDocuments(ctx.clientId);
 export const getRequests = (ctx: ClientContext) => repo.listRequests(ctx.clientId);
 export const getReports = (ctx: ClientContext) => repo.listReports(ctx.clientId);

@@ -63,6 +63,27 @@ export const software = (clientId: number) =>
     [clientId],
   );
 
+export const lockJournlConnection = (clientId: number, conn: PoolConnection) =>
+  queryOne<{ id: number; status: string }>(`SELECT id, status FROM integration_connections WHERE client_id = ? AND provider = 'journl' FOR UPDATE`, [clientId], conn);
+
+/** Saves the client's JournL organisation as a pending connection for the Accountanz team to verify. */
+export async function saveJournlConnection(clientId: number, existingId: number | null, name: string, orgId: string, conn: PoolConnection) {
+  if (existingId) {
+    await execute(
+      `UPDATE integration_connections SET external_org_name = ?, external_org_id = ?, status = 'pending', last_error = NULL, last_health_check = NULL WHERE id = ?`,
+      [name, orgId, existingId],
+      conn,
+    );
+    return existingId;
+  }
+  const r = await execute(
+    `INSERT INTO integration_connections (client_id, provider, external_org_name, external_org_id, status) VALUES (?, 'journl', ?, ?, 'pending')`,
+    [clientId, name, orgId],
+    conn,
+  );
+  return r.insertId;
+}
+
 // ── Documents & requests ──
 export const listDocuments = (clientId: number) =>
   query<{ id: number; file_name: string; category: string; period: string | null; status: string; review_note: string | null; created_at: string; uploaded_by: string | null; request_id: number | null }>(

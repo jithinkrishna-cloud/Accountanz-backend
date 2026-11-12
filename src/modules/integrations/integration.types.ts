@@ -1,4 +1,4 @@
-export const PROVIDERS = ["journl", "zoho_books"] as const;
+export const PROVIDERS = ["journl"] as const;
 export type Provider = (typeof PROVIDERS)[number];
 export const CONNECTION_STATUSES = ["pending", "connected", "error", "disconnected"] as const;
 export type ConnectionStatus = (typeof CONNECTION_STATUSES)[number];
