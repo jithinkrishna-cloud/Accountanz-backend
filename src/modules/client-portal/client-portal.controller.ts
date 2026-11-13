@@ -58,3 +58,6 @@ export const thread = async (_req: Request, res: Response) => void res.json(awai
 export const startThread = async (req: Request, res: Response) => void res.status(201).json(await service.startThread(req.user!, ctx(res), req.body));
 export const reply = async (req: Request, res: Response) => void res.status(201).json(await service.reply(req.user!, ctx(res), idOf(res), req.body.body));
 export const updateSettings = async (req: Request, res: Response) => void res.json(await service.updateSettings(ctx(res), req.body));
+
+export const packages = async (_req: Request, res: Response) => void res.json(await service.getPackages(ctx(res)));
+export const choosePackage = async (req: Request, res: Response) => void res.json(await service.choosePackage(req.user!, ctx(res), idOf(res)));

@@ -42,5 +42,7 @@ clientPortalRoutes.get("/messages/:id", validate({ params: idParam }), c.thread)
 clientPortalRoutes.post("/messages/:id", validate({ params: idParam, body: replySchema }), c.reply);
 clientPortalRoutes.get("/meetings", c.meetings);
 clientPortalRoutes.get("/billing", c.billing);
+clientPortalRoutes.get("/packages", c.packages);
+clientPortalRoutes.post("/packages/:id/choose", validate({ params: idParam }), c.choosePackage);
 clientPortalRoutes.get("/settings", c.settings);
 clientPortalRoutes.patch("/settings", validate({ body: settingsSchema }), c.updateSettings);

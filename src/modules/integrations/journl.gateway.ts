@@ -119,6 +119,30 @@ async function signIn(email: string, password: string): Promise<SignInResult> {
   return { kind: "ok", journlUserName: account.name ?? email, journlEmail: account.email ?? email, companies, session: sessionFrom(account.token) };
 }
 
+export type ReadResult<T = unknown> = { kind: "ok"; data: T } | { kind: "expired" } | { kind: "failed"; reason: string };
+
+/**
+ * Reads from JournL with the owner's session. GET only: this function is the only JournL call besides login,
+ * and it has no way to send POST/PUT/PATCH/DELETE, so Accountanz never writes to JournL through it.
+ */
+export async function journlGet<T = unknown>(token: string, path: string, query: Record<string, string | number | boolean | undefined> = {}): Promise<ReadResult<T>> {
+  if (!env.JOURNL_API_URL) return { kind: "failed", reason: "JournL isn't set up on this server" };
+  const url = new URL(path.replace(/^\//, ""), env.JOURNL_API_URL.endsWith("/") ? env.JOURNL_API_URL : `${env.JOURNL_API_URL}/`);
+  for (const [k, v] of Object.entries(query)) if (v !== undefined && v !== "") url.searchParams.set(k, String(v));
+  try {
+    const res = await fetch(url, { method: "GET", headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }, signal: AbortSignal.timeout(TIMEOUT_MS) });
+    if (res.status === 401) return { kind: "expired" };
+    const body = (await res.json().catch(() => null)) as { success?: boolean; message?: string; data?: T } | null;
+    if (!res.ok || !body || body.success === false) {
+      return { kind: "failed", reason: body?.message ? `JournL: ${body.message}` : `JournL answered ${res.status}` };
+    }
+    return { kind: "ok", data: body.data as T };
+  } catch (err) {
+    logger.warn({ err: (err as Error).message, path }, "JournL read failed");
+    return { kind: "failed", reason: UNAVAILABLE };
+  }
+}
+
 const gateway: JournlGateway = {
   available: false,
   signInAvailable: !!env.JOURNL_API_URL,

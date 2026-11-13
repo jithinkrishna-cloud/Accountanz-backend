@@ -1,6 +1,7 @@
 import type { AuthUser } from "../../types/auth.types.js";
 import { AppError } from "../../utils/app-error.js";
-import { clientScope, isClientReviewer, requireClientAccess } from "../access/client-access.js";
+import { clientScope, isAdmin, isClientReviewer, requireClientAccess } from "../access/client-access.js";
+import { getJournlOverview } from "../integrations/journl-data.service.js";
 import { assessChecklist, recentPeriods, setStatus as setClosingStatus } from "../closing/closing.service.js";
 import { checklist as closingChecklist, currentStatus } from "../closing/closing.repository.js";
 import { withTransaction } from "../../database/connection.js";
@@ -46,13 +47,14 @@ export const clientOptions = (actor: AuthUser) => repo.clientOptions(scopeOf(act
 
 export async function clientOverview(actor: AuthUser, clientId: number) {
   await requireClientAccess(actor, clientId);
-  const [client, engagement, team, contacts, summary, journl] = await Promise.all([
+  const [client, engagement, team, contacts, summary, journl, journlConnection] = await Promise.all([
     repo.clientFacts(clientId),
     repo.activeEngagement(clientId),
     repo.clientTeam(clientId),
     repo.clientContacts(clientId),
     repo.myClients(actor.id, { sql: "{c} = ?", params: [clientId] }, thisPeriod()),
     myClientPermissions(actor, clientId),
+    repo.journlConnection(clientId),
   ]);
   if (!client) throw AppError.notFound("Client");
   return {
@@ -64,6 +66,8 @@ export async function clientOverview(actor: AuthUser, clientId: number) {
     can_review: await isClientReviewer(actor, clientId),
     /** The caller's own JournL module permissions (one entry per active assignment; none for admins). */
     journl,
+    /** The client's JournL connection; `session_until` is set while its books can be read. */
+    journl_connection: journlConnection && { status: journlConnection.status, org_id: journlConnection.external_org_id, org_name: journlConnection.external_org_name, session_until: journlConnection.session_until },
   };
 }
 
@@ -94,4 +98,18 @@ export async function setReadiness(actor: AuthUser, clientId: number, period: st
   if (before === "closed") throw AppError.conflict("This month is closed. Ask an admin to reopen it.");
   await setClosingStatus(actor, clientId, period, status, reason);
   return checklist(actor, period);
+}
+
+/**
+ * Read-only JournL books for an accountant on this client: needs a current assignment with JournL access
+ * (admins always pass). Reuses the admin view; the data comes live from JournL with the owner's session.
+ */
+export async function clientJournlData(actor: AuthUser, clientId: number, period: { from: string; to: string }) {
+  await requireClientAccess(actor, clientId);
+  if (!isAdmin(actor) && !(await repo.hasJournlAccess(actor.id, clientId))) {
+    throw AppError.forbidden("Your assignment on this client doesn't include JournL access. Ask an admin to turn it on.");
+  }
+  const connection = await repo.journlConnection(clientId);
+  if (!connection || connection.status !== "connected") throw AppError.conflict("This client hasn't connected JournL yet");
+  return getJournlOverview(connection.id, period);
 }

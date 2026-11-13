@@ -8,7 +8,8 @@ const SELECT = `
   SELECT ic.id, ic.client_id, COALESCE(c.trade_name, c.legal_name) AS client_name, ic.provider,
          ic.external_org_id, ic.external_org_name, ic.status, ic.last_health_check, ic.last_error,
          ic.verified_at, vu.full_name AS verified_by_name, ic.verification_note, ic.disconnected_at,
-         ic.authorized_at, au.full_name AS authorized_by_name
+         ic.authorized_at, au.full_name AS authorized_by_name,
+         CASE WHEN ic.access_token_enc IS NOT NULL AND ic.token_expires_at > UTC_TIMESTAMP() THEN ic.token_expires_at END AS journl_session_until
     FROM integration_connections ic JOIN clients c ON c.id = ic.client_id
     LEFT JOIN users vu ON vu.id = ic.verified_by
     LEFT JOIN users au ON au.id = ic.authorized_by`;

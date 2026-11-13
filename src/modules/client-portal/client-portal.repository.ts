@@ -58,13 +58,19 @@ export const team = (clientId: number) =>
   );
 
 export const software = (clientId: number) =>
-  query<{ provider: string; external_org_name: string | null; external_org_id: string | null; status: string; last_health_check: string | null; verified_at: string | null; authorized_at: string | null }>(
-    `SELECT provider, external_org_name, external_org_id, status, last_health_check, verified_at, authorized_at FROM integration_connections WHERE client_id = ? ORDER BY provider`,
+  query<{ provider: string; external_org_name: string | null; external_org_id: string | null; status: string; last_health_check: string | null; verified_at: string | null; authorized_at: string | null; session_until: string | null }>(
+    `SELECT provider, external_org_name, external_org_id, status, last_health_check, verified_at, authorized_at,
+            CASE WHEN access_token_enc IS NOT NULL AND token_expires_at > UTC_TIMESTAMP() THEN token_expires_at END AS session_until
+       FROM integration_connections WHERE client_id = ? ORDER BY provider`,
     [clientId],
   );
 
 export const lockJournlConnection = (clientId: number, conn: PoolConnection) =>
-  queryOne<{ id: number; status: string }>(`SELECT id, status FROM integration_connections WHERE client_id = ? AND provider = 'journl' FOR UPDATE`, [clientId], conn);
+  queryOne<{ id: number; status: string; external_org_id: string | null }>(
+    `SELECT id, status, external_org_id FROM integration_connections WHERE client_id = ? AND provider = 'journl' FOR UPDATE`,
+    [clientId],
+    conn,
+  );
 
 /** The owner withdrew access; the organisation details stay so they can reconnect, the verification does not. */
 export async function disconnectJournlConnection(id: number, conn: PoolConnection) {
@@ -278,3 +284,21 @@ export async function updateProfile(userId: number, changes: { full_name?: strin
   if (changes.notification_prefs !== undefined) (sets.push("notification_prefs = ?"), params.push(JSON.stringify(changes.notification_prefs)));
   if (sets.length) await execute(`UPDATE users SET ${sets.join(", ")} WHERE id = ?`, [...params, String(userId)]);
 }
+
+// ── Packages (client chooses a package) ──
+export interface OpenEngagement {
+  id: number;
+  status: "draft" | "sent" | "accepted" | "active";
+  package_id: number;
+  package_name: string;
+}
+
+/** The client's engagement that hasn't ended (at most one), with its package. Locks it when given a transaction. */
+export const openEngagement = (clientId: number, conn?: PoolConnection) =>
+  queryOne<OpenEngagement>(
+    `SELECT e.id, e.status, e.package_id, p.name AS package_name
+       FROM engagements e JOIN packages p ON p.id = e.package_id
+      WHERE e.client_id = ? AND e.status <> 'ended' ORDER BY e.id DESC LIMIT 1 ${conn ? "FOR UPDATE" : ""}`,
+    [clientId],
+    conn,
+  );

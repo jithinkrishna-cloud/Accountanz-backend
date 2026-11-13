@@ -8,6 +8,8 @@ import { recordAudit } from "../audit/audit.service.js";
 import { notifyApprovalDecided, notifyClientMessage, notifyDocumentReceived } from "../notifications/notification.service.js";
 import { setClientSoftware } from "../integrations/integration.repository.js";
 import { journlGateway } from "../integrations/journl.gateway.js";
+import { insertEngagement, updateEngagement as updateEngagementRow } from "../engagements/engagement.repository.js";
+import { findPackageById, listPackages } from "../packages/package.repository.js";
 import * as repo from "./client-portal.repository.js";
 import { NOTIFICATION_PREFS, type ClientContext, type NotificationPrefs } from "./client-portal.types.js";
 import type { ApprovalDecisionInput, ConnectJournlInput, NewThreadInput, SettingsInput, UploadMeta } from "./client-portal.validation.js";
@@ -68,7 +70,10 @@ export async function connectJournl(actor: AuthUser, ctx: ClientContext, input: 
   const note = `Confirmed by JournL sign-in as ${result.journlEmail}: company ${org.id} (${org.name})`;
   await withTransaction(async (conn) => {
     const existing = await repo.lockJournlConnection(ctx.clientId, conn);
-    if (existing?.status === "connected") throw AppError.conflict("JournL is already connected for your company");
+    // Signing in again while connected refreshes the JournL session; switching to another company needs a disconnect first.
+    if (existing?.status === "connected" && existing.external_org_id !== org.id) {
+      throw AppError.conflict(`JournL is connected to company ${existing.external_org_id}. Disconnect it before connecting another company.`);
+    }
     if (await repo.journlOrgTakenBy(org.id, ctx.clientId, conn)) {
       throw AppError.conflict("This JournL company is already connected to another Accountanz client");
     }
@@ -79,7 +84,8 @@ export async function connectJournl(actor: AuthUser, ctx: ClientContext, input: 
         : null;
     const id = await repo.saveJournlConnection(ctx.clientId, existing?.id ?? null, org, actor.id, note, session, conn);
     await setClientSoftware(ctx.clientId, "journl", conn);
-    await recordAudit(actor, { action: "JournL connected", entityType: "IntegrationConnection", entityId: id, clientId: ctx.clientId, details: note }, conn);
+    const action = existing?.status === "connected" ? "JournL session refreshed" : "JournL connected";
+    await recordAudit(actor, { action, entityType: "IntegrationConnection", entityId: id, clientId: ctx.clientId, details: note }, conn);
   });
   return repo.software(ctx.clientId);
 }
@@ -202,4 +208,38 @@ export async function getSettings(ctx: ClientContext) {
 export async function updateSettings(ctx: ClientContext, input: SettingsInput) {
   await repo.updateProfile(ctx.userId, input);
   return getSettings(ctx);
+}
+
+/** Packages the client can choose from, and the package on their current engagement (if any). */
+export async function getPackages(ctx: ClientContext) {
+  const [all, current] = await Promise.all([listPackages(), repo.openEngagement(ctx.clientId)]);
+  return { items: all.filter((p) => p.is_active), current };
+}
+
+/**
+ * The owner picks a package. With no open engagement this opens a draft engagement on it for the Accountanz
+ * team to take forward (agreement, activation, first invoice). While the engagement is still a draft the
+ * owner can switch package; once it has been sent, a change goes through the team.
+ */
+export async function choosePackage(actor: AuthUser, ctx: ClientContext, packageId: number) {
+  if (ctx.role !== "owner") throw AppError.forbidden("Only the company owner can choose a package");
+  if (ctx.clientStatus === "exited") throw AppError.conflict("Your company has left Accountanz. Contact us to come back.");
+  const pkg = await findPackageById(packageId);
+  if (!pkg || !pkg.is_active) throw AppError.notFound("Package");
+
+  await withTransaction(async (conn) => {
+    const open = await repo.openEngagement(ctx.clientId, conn);
+    if (!open) {
+      const id = await insertEngagement({ client_id: ctx.clientId, package_id: pkg.id, start_date: null, renewal_date: null }, conn);
+      await recordAudit(actor, { action: "Package chosen", entityType: "Engagement", entityId: id, clientId: ctx.clientId, details: `${pkg.name} chosen in the client portal; draft engagement #${id} opened` }, conn);
+      return;
+    }
+    if (open.package_id === pkg.id) return;
+    if (open.status !== "draft") {
+      throw AppError.conflict(`Your ${open.package_name} engagement is already ${open.status === "sent" ? "with you for acceptance" : open.status}. Message your team to change package.`);
+    }
+    await updateEngagementRow(open.id, { package_id: pkg.id }, conn);
+    await recordAudit(actor, { action: "Package chosen", entityType: "Engagement", entityId: open.id, clientId: ctx.clientId, details: `Changed from ${open.package_name} to ${pkg.name} in the client portal` }, conn);
+  });
+  return getPackages(ctx);
 }

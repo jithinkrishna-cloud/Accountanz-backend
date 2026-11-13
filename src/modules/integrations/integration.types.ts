@@ -19,4 +19,6 @@ export interface IntegrationRow {
   disconnected_at: string | null;
   authorized_at: string | null;
   authorized_by_name: string | null;
+  /** Set while Accountanz holds a live JournL session (from the owner's sign-in) for reading data. */
+  journl_session_until: string | null;
 }
