@@ -100,7 +100,7 @@ export async function setModulePermission(actor: AuthUser, assignmentId: number,
         entityType: "Assignment",
         entityId: assignmentId,
         clientId: a.client_id,
-        details: `${m.label}: ${before.join(", ") || "none"} → ${unique.join(", ") || "none"}${m.verified ? "" : " (provisional, not verified against JournL)"}`,
+        details: `${m.label}: ${before.join(", ") || "none"} → ${unique.join(", ") || "none"}${m.verified ? "" : " (mapped, not verified against JournL)"}`,
       },
       conn,
     );

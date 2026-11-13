@@ -3,7 +3,7 @@ import { idParam, validate } from "../../middleware/validate.js";
 import * as controller from "./permission.controller.js";
 import { modulePermissionBody, modulePermissionParams } from "./permission.validation.js";
 
-/** Admin: /api/admin/journl-permissions. Assignment-level JournL module permissions (provisional catalogue). */
+/** Admin: /api/admin/journl-permissions. Assignment-level JournL module permissions (JournL-mapped catalogue). */
 export const journlPermissionRoutes = Router();
 
 journlPermissionRoutes.get("/catalog", controller.catalog);
