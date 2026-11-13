@@ -8,6 +8,7 @@ export async function grid(_req: Request, res: Response) {
 
 export async function setStatus(req: Request, res: Response) {
   const { clientId, period } = res.locals.params as ClosingParams;
-  await service.setStatus(req.user!, clientId, period, (req.body as ClosingStatusInput).status);
+  const body = req.body as ClosingStatusInput;
+  await service.setStatus(req.user!, clientId, period, body.status, body.reason);
   res.status(204).end();
 }

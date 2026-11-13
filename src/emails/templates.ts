@@ -229,3 +229,97 @@ export function companyRegisteredEmail(d: { adminName: string; company: string; 
     text: plainText(`Hi ${d.adminName},`, `${d.ownerName} (${d.ownerEmail}) registered ${d.company} on the platform. It is waiting at the Registered stage.`, `Open Onboarding: ${url}`),
   };
 }
+
+// ── Staff → client delivery ──
+export function documentRequestedEmail(d: { recipientName: string; clientName: string; requester: string; description: string; period: string | null; dueDate: string | null }): EmailContent {
+  const url = appUrl("/app/requests");
+  return {
+    subject: `Document needed: ${d.description}`,
+    html: layout({
+      title: "Your accounting team needs a document",
+      preheader: `${d.requester} asked for: ${d.description}`,
+      body:
+        paragraph(`Hi ${d.recipientName},`) +
+        paragraph(`${d.requester} needs the following from ${d.clientName}:`) +
+        quote(d.description) +
+        facts([["Period", d.period ? formatPeriod(d.period) : null], ["Needed by", d.dueDate]]) +
+        button("Upload in the portal", url),
+    }),
+    text: plainText(`Hi ${d.recipientName},`, `${d.requester} needs the following from ${d.clientName}: ${d.description}`, d.dueDate ? `Needed by ${d.dueDate}.` : "", `Upload: ${url}`),
+  };
+}
+
+export function reportPublishedEmail(d: { recipientName: string; clientName: string; reportLabel: string; period: string; summary: string | null }): EmailContent {
+  const url = appUrl("/app/reports");
+  const title = `${d.reportLabel} for ${formatPeriod(d.period)}`;
+  return {
+    subject: `New report: ${title}`,
+    html: layout({
+      title: "A new report is ready",
+      preheader: `${title} is published for ${d.clientName}.`,
+      body: paragraph(`Hi ${d.recipientName},`) + paragraph(`Your ${title} is ready in the client portal.`) + (d.summary ? quote(d.summary) : "") + button("View report", url),
+    }),
+    text: plainText(`Hi ${d.recipientName},`, `Your ${title} is ready.`, d.summary ?? "", `View: ${url}`),
+  };
+}
+
+export function approvalRequestedEmail(d: { recipientName: string; clientName: string; requester: string; subject: string; description: string | null }): EmailContent {
+  const url = appUrl("/app/approvals");
+  return {
+    subject: `Approval needed: ${d.subject}`,
+    html: layout({
+      title: "Your approval is needed",
+      preheader: `${d.requester} is asking ${d.clientName} to approve: ${d.subject}`,
+      body: paragraph(`Hi ${d.recipientName},`) + paragraph(`${d.requester} is asking you to approve "${d.subject}".`) + (d.description ? quote(d.description) : "") + button("Review and decide", url),
+    }),
+    text: plainText(`Hi ${d.recipientName},`, `${d.requester} is asking you to approve "${d.subject}".`, d.description ?? "", `Decide: ${url}`),
+  };
+}
+
+export function meetingScheduledEmail(d: { recipientName: string; clientName: string; organiser: string; title: string; when: string; link: string | null; forClient: boolean }): EmailContent {
+  const url = appUrl(d.forClient ? "/app/meetings" : "/team/meetings");
+  return {
+    subject: `Meeting scheduled: ${d.title} (${d.when})`,
+    html: layout({
+      title: "A meeting has been scheduled",
+      preheader: `${d.title} on ${d.when}`,
+      body:
+        paragraph(`Hi ${d.recipientName},`) +
+        paragraph(`${d.organiser} scheduled a meeting${d.forClient ? "" : ` with ${d.clientName}`}.`) +
+        facts([["Meeting", d.title], ["When", d.when], ["Join link", d.link]]) +
+        button("View meetings", url),
+    }),
+    text: plainText(`Hi ${d.recipientName},`, `${d.organiser} scheduled "${d.title}" on ${d.when}.`, d.link ? `Join: ${d.link}` : "", `Meetings: ${url}`),
+  };
+}
+
+export function meetingCancelledEmail(d: { recipientName: string; clientName: string; cancelledBy: string; title: string; when: string; forClient: boolean }): EmailContent {
+  const url = appUrl(d.forClient ? "/app/meetings" : "/team/meetings");
+  return {
+    subject: `Meeting cancelled: ${d.title} (${d.when})`,
+    html: layout({
+      title: "A meeting has been cancelled",
+      preheader: `${d.title} on ${d.when} is cancelled`,
+      body:
+        paragraph(`Hi ${d.recipientName},`) +
+        paragraph(`${d.cancelledBy} cancelled this meeting${d.forClient ? "" : ` with ${d.clientName}`}.`) +
+        facts([["Meeting", d.title], ["Was scheduled for", d.when]]) +
+        button("View meetings", url),
+    }),
+    text: plainText(`Hi ${d.recipientName},`, `${d.cancelledBy} cancelled "${d.title}" (${d.when}).`, `Meetings: ${url}`),
+  };
+}
+
+/** A staff member wrote in a thread: to the client (client threads) or to colleagues (internal threads). */
+export function teamMessageEmail(d: { recipientName: string; clientName: string; author: string; subject: string; body: string; forClient: boolean }): EmailContent {
+  const url = appUrl(d.forClient ? "/app/messages" : "/team/messages");
+  return {
+    subject: d.forClient ? `New message from your accounting team: ${d.subject}` : `[Internal] ${d.clientName}: ${d.subject}`,
+    html: layout({
+      title: d.forClient ? "New message from your accounting team" : `Internal note on ${d.clientName}`,
+      preheader: `${d.author}: ${d.body.slice(0, 90)}`,
+      body: paragraph(`Hi ${d.recipientName},`) + paragraph(`${d.author} wrote about "${d.subject}":`) + quote(d.body) + button("Open conversation", url),
+    }),
+    text: plainText(`Hi ${d.recipientName},`, `${d.author} wrote about "${d.subject}":`, d.body, `Open: ${url}`),
+  };
+}

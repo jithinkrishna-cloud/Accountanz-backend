@@ -1,6 +1,7 @@
 import type { PoolConnection } from "mysql2/promise";
 import { pool, query } from "../../database/connection.js";
 import { ADMIN_ROLES, type AuthUser, type PortalRole } from "../../types/auth.types.js";
+import { AppError } from "../../utils/app-error.js";
 
 /**
  * The single owner of the client access rule:
@@ -39,4 +40,16 @@ export function clientScope(user: AuthUser, column: string): { sql: string; para
     sql: `${column} IN (SELECT a.client_id FROM assignments a WHERE a.user_id = ? AND ${activeAssignmentSql("a")})`,
     params: [user.id],
   };
+}
+
+/** Throws "not found" (rather than forbidden) so staff can't probe which clients exist. */
+export async function requireClientAccess(user: AuthUser, clientId: number, what = "Client") {
+  if (!(await canAccessClient(user, clientId))) throw AppError.notFound(what);
+}
+
+/** Admins, or staff holding a reviewer team role on the client today (publishing, closing readiness). */
+export async function isClientReviewer(user: AuthUser, clientId: number) {
+  if (isAdmin(user)) return true;
+  const roles = await activeTeamRoles(user.id, clientId);
+  return roles.some((r) => (REVIEWER_TEAM_ROLES as readonly string[]).includes(r));
 }

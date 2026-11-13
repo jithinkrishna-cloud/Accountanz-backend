@@ -50,3 +50,28 @@ export function findRegistrationForEmail(caseId: number) {
     [caseId],
   );
 }
+
+export type ClientPref = "document_requests" | "approvals" | "reports";
+
+/** Active portal users of a client; with a preference, only those who haven't switched it off (default on). */
+export const listClientContacts = (clientId: number, pref?: ClientPref, approversOnly = false) =>
+  query<Contact & { id: number }>(
+    `SELECT u.id, u.email, u.full_name FROM client_users cu JOIN users u ON u.id = cu.user_id
+      WHERE cu.client_id = ? AND u.status = 'active'
+        ${approversOnly ? "AND (cu.role = 'owner' OR cu.can_approve = 1)" : ""}
+        ${pref ? "AND COALESCE(JSON_EXTRACT(u.notification_prefs, ?), CAST('true' AS JSON)) = CAST('true' AS JSON)" : ""}`,
+    pref ? [clientId, `$.${pref}`] : [clientId],
+  );
+
+export const findClientName = async (clientId: number) =>
+  (await queryOne<{ name: string }>(`SELECT COALESCE(trade_name, legal_name) AS name FROM clients WHERE id = ?`, [clientId]))?.name ?? "your company";
+
+/** Today's team on a client plus every staff member who has written in the thread (internal notes reach both). */
+export const listThreadStaff = (clientId: number, threadId: number) =>
+  query<Contact & { id: number }>(
+    `SELECT DISTINCT u.id, u.email, u.full_name FROM users u
+      WHERE u.status = 'active' AND u.portal_role NOT IN ('client_owner', 'client_member')
+        AND (u.id IN (SELECT a.user_id FROM assignments a WHERE a.client_id = ? AND ${activeAssignmentSql("a")})
+             OR u.id IN (SELECT m.author_id FROM messages m WHERE m.thread_id = ?))`,
+    [clientId, threadId],
+  );

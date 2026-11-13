@@ -13,4 +13,10 @@ export interface IntegrationRow {
   status: ConnectionStatus;
   last_health_check: string | null;
   last_error: string | null;
+  verified_at: string | null;
+  verified_by_name: string | null;
+  verification_note: string | null;
+  disconnected_at: string | null;
+  authorized_at: string | null;
+  authorized_by_name: string | null;
 }

@@ -15,5 +15,10 @@ export const createConnectionSchema = z.object({
   external_org_id: optionalText(100),
 });
 
+export const verifyConnectionSchema = z.object({
+  note: z.string().trim().min(10, "Say how you checked it, in at least 10 characters").max(500),
+});
+
 export type IntegrationListQuery = z.infer<typeof integrationListQuerySchema>;
 export type CreateConnectionInput = z.infer<typeof createConnectionSchema>;
+export type VerifyConnectionInput = z.infer<typeof verifyConnectionSchema>;

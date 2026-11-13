@@ -1,20 +1,25 @@
 import { pipeline } from "node:stream/promises";
 import type { Request, Response } from "express";
 import type { IdParam } from "../../middleware/validate.js";
-import type { ListQuery } from "../../utils/pagination.js";
 import * as service from "./document.service.js";
-import type { DocumentListQuery, DocumentStatusInput } from "./document.validation.js";
+import type { CreateRequestInput, DocumentListQuery, DocumentStatusInput, RequestListQuery, StaffUploadInput } from "./document.validation.js";
 
-export async function list(_req: Request, res: Response) {
-  res.json(await service.listDocuments(res.locals.query as DocumentListQuery));
+const id = (res: Response) => (res.locals.params as IdParam).id;
+
+export async function list(req: Request, res: Response) {
+  res.json(await service.listDocuments(req.user!, res.locals.query as DocumentListQuery));
+}
+
+export async function upload(req: Request, res: Response) {
+  res.status(201).json(await service.uploadDocument(req.user!, res.locals.body as StaffUploadInput, req.file!));
 }
 
 export async function setStatus(req: Request, res: Response) {
-  res.json(await service.changeStatus(req.user!, (res.locals.params as IdParam).id, (req.body as DocumentStatusInput).status));
+  res.json(await service.changeStatus(req.user!, id(res), (req.body as DocumentStatusInput).status));
 }
 
-export async function download(_req: Request, res: Response) {
-  const { file, name } = await service.openDocument((res.locals.params as IdParam).id);
+export async function download(req: Request, res: Response) {
+  const { file, name } = await service.openDocument(req.user!, id(res));
   res.setHeader("Cache-Control", "private, no-store");
   res.attachment(name);
   res.type(file.contentType);
@@ -22,6 +27,14 @@ export async function download(_req: Request, res: Response) {
   await pipeline(file.stream, res);
 }
 
-export async function openRequests(_req: Request, res: Response) {
-  res.json(await service.listOpenRequests(res.locals.query as ListQuery));
+export async function requests(req: Request, res: Response) {
+  res.json(await service.listRequests(req.user!, res.locals.query as RequestListQuery));
+}
+
+export async function createRequest(req: Request, res: Response) {
+  res.status(201).json(await service.createRequest(req.user!, req.body as CreateRequestInput));
+}
+
+export async function cancelRequest(req: Request, res: Response) {
+  res.json(await service.cancelRequest(req.user!, id(res)));
 }

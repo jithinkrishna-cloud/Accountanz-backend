@@ -23,6 +23,10 @@ const schema = z.object({
   MAIL_REDIRECT_TO: z.email().optional(),
   /** Vercel Blob read-write token for the private file store (agreements, documents). Uploads fail without it. */
   BLOB_READ_WRITE_TOKEN: z.string().min(1).optional(),
+  /** JournL API base URL (e.g. https://testapi.bizpolebooks.com). Without it, owners can't sign in with JournL to connect. */
+  JOURNL_API_URL: z.url().optional(),
+  /** 32-byte base64 key that encrypts stored JournL session tokens. Without it, JournL data can't be read. */
+  JOURNL_TOKEN_KEY: z.string().refine((v) => Buffer.from(v, "base64").length === 32, "JOURNL_TOKEN_KEY must be 32 bytes, base64").optional(),
 });
 
 const parsed = schema.safeParse(process.env);

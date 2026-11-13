@@ -6,8 +6,12 @@ import type { CreateConnectionInput, IntegrationListQuery } from "./integration.
 
 const SELECT = `
   SELECT ic.id, ic.client_id, COALESCE(c.trade_name, c.legal_name) AS client_name, ic.provider,
-         ic.external_org_id, ic.external_org_name, ic.status, ic.last_health_check, ic.last_error
-    FROM integration_connections ic JOIN clients c ON c.id = ic.client_id`;
+         ic.external_org_id, ic.external_org_name, ic.status, ic.last_health_check, ic.last_error,
+         ic.verified_at, vu.full_name AS verified_by_name, ic.verification_note, ic.disconnected_at,
+         ic.authorized_at, au.full_name AS authorized_by_name
+    FROM integration_connections ic JOIN clients c ON c.id = ic.client_id
+    LEFT JOIN users vu ON vu.id = ic.verified_by
+    LEFT JOIN users au ON au.id = ic.authorized_by`;
 
 export async function listConnections(q: IntegrationListQuery): Promise<Paged<IntegrationRow>> {
   const where: string[] = [];
@@ -35,6 +39,15 @@ export async function insertConnection(c: CreateConnectionInput, conn: PoolConne
     conn,
   );
   return r.insertId;
+}
+
+/** An admin checked the organisation in JournL by hand; records who, when and how. */
+export async function recordManualVerification(id: number, userId: number, note: string, conn: PoolConnection) {
+  await execute(
+    `UPDATE integration_connections SET status = 'connected', last_error = NULL, verified_by = ?, verified_at = UTC_TIMESTAMP(), verification_note = ? WHERE id = ?`,
+    [userId, note, id],
+    conn,
+  );
 }
 
 export async function recordHealthCheck(id: number, status: "connected" | "error", error: string | null, conn: PoolConnection) {

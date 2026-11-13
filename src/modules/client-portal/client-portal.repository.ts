@@ -58,27 +58,62 @@ export const team = (clientId: number) =>
   );
 
 export const software = (clientId: number) =>
-  query<{ provider: string; external_org_name: string | null; status: string; last_health_check: string | null }>(
-    `SELECT provider, external_org_name, status, last_health_check FROM integration_connections WHERE client_id = ? ORDER BY provider`,
+  query<{ provider: string; external_org_name: string | null; external_org_id: string | null; status: string; last_health_check: string | null; verified_at: string | null; authorized_at: string | null }>(
+    `SELECT provider, external_org_name, external_org_id, status, last_health_check, verified_at, authorized_at FROM integration_connections WHERE client_id = ? ORDER BY provider`,
     [clientId],
   );
 
 export const lockJournlConnection = (clientId: number, conn: PoolConnection) =>
   queryOne<{ id: number; status: string }>(`SELECT id, status FROM integration_connections WHERE client_id = ? AND provider = 'journl' FOR UPDATE`, [clientId], conn);
 
-/** Saves the client's JournL organisation as a pending connection for the Accountanz team to verify. */
-export async function saveJournlConnection(clientId: number, existingId: number | null, name: string, orgId: string, conn: PoolConnection) {
+/** The owner withdrew access; the organisation details stay so they can reconnect, the verification does not. */
+export async function disconnectJournlConnection(id: number, conn: PoolConnection) {
+  await execute(
+    `UPDATE integration_connections SET status = 'disconnected', disconnected_at = UTC_TIMESTAMP(), last_error = NULL,
+            verified_by = NULL, verified_at = NULL, verification_note = NULL, authorized_by = NULL, authorized_at = NULL, access_token_enc = NULL, token_expires_at = NULL WHERE id = ?`,
+    [id],
+    conn,
+  );
+}
+
+/** Another client already connected to this JournL company (one JournL company serves one client). */
+export const journlOrgTakenBy = (externalOrgId: string, clientId: number, conn: PoolConnection) =>
+  queryOne<{ client_id: number }>(
+    `SELECT client_id FROM integration_connections WHERE provider = 'journl' AND external_org_id = ? AND client_id <> ? AND status <> 'disconnected' LIMIT 1`,
+    [externalOrgId, clientId],
+    conn,
+  );
+
+/**
+ * Connects the client's JournL company after the owner signed in with JournL: JournL confirmed the company,
+ * so the connection is verified on the spot. Records the owner's authorization and how it was verified.
+ */
+export async function saveJournlConnection(
+  clientId: number,
+  existingId: number | null,
+  org: { id: string; name: string },
+  ownerId: number,
+  note: string,
+  session: { tokenEnc: string; expiresAt: Date } | null,
+  conn: PoolConnection,
+) {
+  const tokenEnc = session?.tokenEnc ?? null;
+  const expiresAt = session?.expiresAt ?? null;
   if (existingId) {
     await execute(
-      `UPDATE integration_connections SET external_org_name = ?, external_org_id = ?, status = 'pending', last_error = NULL, last_health_check = NULL WHERE id = ?`,
-      [name, orgId, existingId],
+      `UPDATE integration_connections SET external_org_name = ?, external_org_id = ?, status = 'connected', last_error = NULL, last_health_check = UTC_TIMESTAMP(),
+              verified_by = ?, verified_at = UTC_TIMESTAMP(), verification_note = ?, disconnected_at = NULL,
+              authorized_by = ?, authorized_at = UTC_TIMESTAMP(), access_token_enc = ?, token_expires_at = ? WHERE id = ?`,
+      [org.name, org.id, ownerId, note, ownerId, tokenEnc, expiresAt, existingId],
       conn,
     );
     return existingId;
   }
   const r = await execute(
-    `INSERT INTO integration_connections (client_id, provider, external_org_name, external_org_id, status) VALUES (?, 'journl', ?, ?, 'pending')`,
-    [clientId, name, orgId],
+    `INSERT INTO integration_connections
+       (client_id, provider, external_org_name, external_org_id, status, last_health_check, verified_by, verified_at, verification_note, authorized_by, authorized_at, access_token_enc, token_expires_at)
+     VALUES (?, 'journl', ?, ?, 'connected', UTC_TIMESTAMP(), ?, UTC_TIMESTAMP(), ?, ?, UTC_TIMESTAMP(), ?, ?)`,
+    [clientId, org.name, org.id, ownerId, note, ownerId, tokenEnc, expiresAt],
     conn,
   );
   return r.insertId;
@@ -174,12 +209,12 @@ export const listThreads = (clientId: number) =>
             (SELECT MAX(m.created_at) FROM messages m WHERE m.thread_id = t.id) AS last_at,
             (SELECT m.body FROM messages m WHERE m.thread_id = t.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_body,
             (SELECT u.full_name FROM messages m LEFT JOIN users u ON u.id = m.author_id WHERE m.thread_id = t.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_author
-       FROM message_threads t WHERE t.client_id = ? ORDER BY COALESCE(last_at, t.created_at) DESC`,
+       FROM message_threads t WHERE t.client_id = ? AND t.visibility = 'client' ORDER BY COALESCE(last_at, t.created_at) DESC`,
     [clientId],
   );
 
 export const findThread = (clientId: number, id: number) =>
-  queryOne<{ id: number; subject: string | null }>(`SELECT id, subject FROM message_threads WHERE id = ? AND client_id = ?`, [id, clientId]);
+  queryOne<{ id: number; subject: string | null }>(`SELECT id, subject FROM message_threads WHERE id = ? AND client_id = ? AND visibility = 'client'`, [id, clientId]);
 
 export const threadMessages = (threadId: number) =>
   query<{ id: number; body: string; created_at: string; author: string | null; author_id: number | null; from_client: 0 | 1 }>(
@@ -189,7 +224,7 @@ export const threadMessages = (threadId: number) =>
   );
 
 export async function insertThread(clientId: number, userId: number, subject: string, db: PoolConnection) {
-  return (await execute(`INSERT INTO message_threads (client_id, subject, created_by) VALUES (?, ?, ?)`, [clientId, subject, userId], db)).insertId;
+  return (await execute(`INSERT INTO message_threads (client_id, subject, visibility, created_by) VALUES (?, ?, 'client', ?)`, [clientId, subject, userId], db)).insertId;
 }
 export async function insertMessage(threadId: number, userId: number, body: string, db: Db) {
   return (await execute(`INSERT INTO messages (thread_id, author_id, body) VALUES (?, ?, ?)`, [threadId, userId, body], db)).insertId;

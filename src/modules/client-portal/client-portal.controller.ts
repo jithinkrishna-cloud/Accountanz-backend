@@ -31,6 +31,7 @@ export const software = async (_req: Request, res: Response) => void res.json({ 
 export async function connectJournl(req: Request, res: Response) {
   res.status(201).json({ items: await service.connectJournl(req.user!, ctx(res), req.body as ConnectJournlInput) });
 }
+export const disconnectJournl = async (req: Request, res: Response) => void res.json({ items: await service.disconnectJournl(req.user!, ctx(res)) });
 
 export const documents = async (_req: Request, res: Response) => void res.json({ items: await service.getDocuments(ctx(res)) });
 export const requests = async (_req: Request, res: Response) => void res.json({ items: await service.getRequests(ctx(res)) });

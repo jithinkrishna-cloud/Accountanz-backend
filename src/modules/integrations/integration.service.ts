@@ -3,12 +3,14 @@ import type { AuthUser } from "../../types/auth.types.js";
 import { AppError } from "../../utils/app-error.js";
 import { recordAudit } from "../audit/audit.service.js";
 import * as repo from "./integration.repository.js";
-import type { IntegrationRow } from "./integration.types.js";
-import type { CreateConnectionInput, IntegrationListQuery } from "./integration.validation.js";
+import type { CreateConnectionInput, IntegrationListQuery, VerifyConnectionInput } from "./integration.validation.js";
+import { journlGateway } from "./journl.gateway.js";
 
 const PROVIDER_LABEL = { journl: "JournL" } as const;
 
-export const listConnections = (q: IntegrationListQuery) => repo.listConnections(q);
+export async function listConnections(q: IntegrationListQuery) {
+  return { ...(await repo.listConnections(q)), journlApiAvailable: journlGateway.available };
+}
 
 export async function createConnection(actor: AuthUser, input: CreateConnectionInput) {
   if (!(await repo.clientExists(input.client_id))) throw AppError.notFound("Client");
@@ -25,21 +27,35 @@ export async function createConnection(actor: AuthUser, input: CreateConnectionI
 }
 
 /**
- * Checks that the client's books are reachable in the provider.
- * Matches the existing app: the check currently marks the connection as connected and records the time.
- * TODO: call the JournL Partner API here and record "error" with the provider's message on failure.
+ * An admin checked the organisation in JournL by hand (it exists, is active, belongs to this client)
+ * and records how. This is an internal check, not proof that JournL authorised API access.
  */
-async function probeProvider(_connection: IntegrationRow): Promise<{ ok: true } | { ok: false; error: string }> {
-  return { ok: true };
+export async function verifyConnection(actor: AuthUser, id: number, input: VerifyConnectionInput) {
+  const connection = await repo.findConnection(id);
+  if (!connection) throw AppError.notFound("Connection");
+  // Connected rows approved by the old health check (no verification recorded) can still be verified.
+  if (connection.status === "connected" && connection.verified_at) throw AppError.conflict("This connection is already verified");
+  if (connection.status === "disconnected") throw AppError.conflict("The client disconnected this connection; they must reconnect it first");
+  if (!connection.external_org_id) throw AppError.conflict("Add the JournL organisation ID before verifying");
+  await withTransaction(async (conn) => {
+    await repo.recordManualVerification(id, actor.id, input.note, conn);
+    await recordAudit(actor, { action: "Integration verified manually", entityType: "IntegrationConnection", entityId: id, clientId: connection.client_id, details: `${PROVIDER_LABEL[connection.provider]} ${connection.external_org_id}: ${input.note}` }, conn);
+  });
+  return (await repo.findConnection(id))!;
 }
 
+/** Asks JournL whether Accountanz holds an active grant for the organisation. Records nothing while the API is unavailable. */
 export async function runHealthCheck(actor: AuthUser, id: number) {
   const connection = await repo.findConnection(id);
   if (!connection) throw AppError.notFound("Connection");
-  const result = await probeProvider(connection);
+  if (connection.status === "disconnected") throw AppError.conflict("The client disconnected this connection");
+  if (!connection.external_org_id) throw AppError.conflict("This connection has no JournL organisation ID");
+  const grant = await journlGateway.getGrant(connection.external_org_id);
+  if (grant.kind === "unavailable") throw AppError.conflict(grant.reason);
+  const ok = grant.kind === "active";
   await withTransaction(async (conn) => {
-    await repo.recordHealthCheck(id, result.ok ? "connected" : "error", result.ok ? null : result.error, conn);
-    await recordAudit(actor, { action: "Integration health check", entityType: "IntegrationConnection", entityId: id, clientId: connection.client_id, details: `${PROVIDER_LABEL[connection.provider]}: ${result.ok ? "connected" : result.error}` }, conn);
+    await repo.recordHealthCheck(id, ok ? "connected" : "error", ok ? null : grant.reason, conn);
+    await recordAudit(actor, { action: "Integration health check", entityType: "IntegrationConnection", entityId: id, clientId: connection.client_id, details: `${PROVIDER_LABEL[connection.provider]}: ${ok ? "connected" : grant.reason}` }, conn);
   });
   return (await repo.findConnection(id))!;
 }

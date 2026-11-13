@@ -3,7 +3,7 @@
  * They never throw: callers fire them after their transaction commits (`void notifyX(...)`), so a mail
  * problem can't undo or slow down the action. Idempotency keys stop duplicates on retries.
  */
-import { approvalDecidedEmail, clientMessageEmail, companyRegisteredEmail, documentReceivedEmail, invoiceIssuedEmail, taskAssignedEmail, taskReviewedEmail, taskSubmittedEmail } from "../../emails/templates.js";
+import { approvalDecidedEmail, approvalRequestedEmail, clientMessageEmail, companyRegisteredEmail, documentRequestedEmail, meetingCancelledEmail, meetingScheduledEmail, reportPublishedEmail, teamMessageEmail, documentReceivedEmail, invoiceIssuedEmail, taskAssignedEmail, taskReviewedEmail, taskSubmittedEmail } from "../../emails/templates.js";
 import { logger } from "../../utils/logger.js";
 import { sendMail } from "../../utils/mailer.js";
 import { findTask } from "../tasks/task.repository.js";
@@ -119,5 +119,66 @@ export const notifyCompanyRegistered = (caseId: number) =>
     for (const a of await repo.listAdminContacts()) {
       const content = companyRegisteredEmail({ adminName: a.full_name, company: r.company, gstin: r.gstin, state: r.state, ownerName: r.owner_name, ownerEmail: r.owner_email });
       await sendMail({ to: a.email, ...content, idempotencyKey: `company-registered/${caseId}/${a.email}` });
+    }
+  });
+
+// ── Staff → client delivery ──
+export const notifyDocumentRequested = (requestId: number, d: { clientId: number; requester: string; description: string; period: string | null; dueDate: string | null }) =>
+  safely("document-requested", async () => {
+    const clientName = await repo.findClientName(d.clientId);
+    for (const c of await repo.listClientContacts(d.clientId, "document_requests")) {
+      const content = documentRequestedEmail({ recipientName: c.full_name, clientName, requester: d.requester, description: d.description, period: d.period, dueDate: d.dueDate });
+      await sendMail({ to: c.email, ...content, idempotencyKey: `document-requested/${requestId}/${c.email}` });
+    }
+  });
+
+export const notifyReportPublished = (reportId: number, d: { clientId: number; reportLabel: string; period: string; summary: string | null }) =>
+  safely("report-published", async () => {
+    const clientName = await repo.findClientName(d.clientId);
+    for (const c of await repo.listClientContacts(d.clientId, "reports")) {
+      const content = reportPublishedEmail({ recipientName: c.full_name, clientName, reportLabel: d.reportLabel, period: d.period, summary: d.summary });
+      await sendMail({ to: c.email, ...content, idempotencyKey: `report-published/${reportId}/${c.email}` });
+    }
+  });
+
+export const notifyApprovalRequested = (approvalId: number, d: { clientId: number; requester: string; subject: string; description: string | null }) =>
+  safely("approval-requested", async () => {
+    const clientName = await repo.findClientName(d.clientId);
+    for (const c of await repo.listClientContacts(d.clientId, "approvals", true)) {
+      const content = approvalRequestedEmail({ recipientName: c.full_name, clientName, requester: d.requester, subject: d.subject, description: d.description });
+      await sendMail({ to: c.email, ...content, idempotencyKey: `approval-requested/${approvalId}/${c.email}` });
+    }
+  });
+
+/** Invitations go to the meeting's attendees; client and staff attendees get links to their own portal. */
+export const notifyMeetingScheduled = (meetingId: number, d: { clientId: number; organiser: string; title: string; when: string; link: string | null; attendees: { email: string; name: string; isClient: boolean }[] }) =>
+  safely("meeting-scheduled", async () => {
+    const clientName = await repo.findClientName(d.clientId);
+    for (const a of d.attendees) {
+      const content = meetingScheduledEmail({ recipientName: a.name, clientName, organiser: d.organiser, title: d.title, when: d.when, link: d.link, forClient: a.isClient });
+      await sendMail({ to: a.email, ...content, idempotencyKey: `meeting-scheduled/${meetingId}/${a.email}` });
+    }
+  });
+
+/** Everyone who was invited (except whoever cancelled) hears that the meeting is off. */
+export const notifyMeetingCancelled = (meetingId: number, d: { clientId: number; cancelledBy: string; title: string; when: string; attendees: { email: string; name: string; isClient: boolean }[] }) =>
+  safely("meeting-cancelled", async () => {
+    const clientName = await repo.findClientName(d.clientId);
+    for (const a of d.attendees) {
+      const content = meetingCancelledEmail({ recipientName: a.name, clientName, cancelledBy: d.cancelledBy, title: d.title, when: d.when, forClient: a.isClient });
+      await sendMail({ to: a.email, ...content, idempotencyKey: `meeting-cancelled/${meetingId}/${a.email}` });
+    }
+  });
+
+/** Staff wrote in a thread: client threads reach the client's users, internal threads reach the staff involved. */
+export const notifyTeamMessage = (d: { clientId: number; threadId: number; messageId: number; authorId: number; author: string; subject: string; body: string; visibility: "client" | "internal" }) =>
+  safely("team-message", async () => {
+    const clientName = await repo.findClientName(d.clientId);
+    const forClient = d.visibility === "client";
+    const recipients = forClient ? await repo.listClientContacts(d.clientId) : await repo.listThreadStaff(d.clientId, d.threadId);
+    for (const r of recipients) {
+      if (r.id === d.authorId) continue;
+      const content = teamMessageEmail({ recipientName: r.full_name, clientName, author: d.author, subject: d.subject, body: d.body, forClient });
+      await sendMail({ to: r.email, ...content, idempotencyKey: `team-message/${d.messageId}/${r.email}` });
     }
   });

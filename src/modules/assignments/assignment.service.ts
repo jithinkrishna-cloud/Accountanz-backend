@@ -5,6 +5,7 @@ import { AppError } from "../../utils/app-error.js";
 import { humanize } from "../../utils/format.js";
 import { recordAudit } from "../audit/audit.service.js";
 import * as clientRepo from "../clients/client.repository.js";
+import { copyActiveGrants } from "../journl-permissions/permission.repository.js";
 import * as repo from "./assignment.repository.js";
 import type { AssignmentInput, AssignmentListQuery, AssignmentUpdateInput } from "./assignment.validation.js";
 
@@ -61,6 +62,10 @@ export async function createAssignment(actor: AuthUser, input: AssignmentInput) 
     if (replaced) {
       await repo.endAssignment(replaced.id, newId, conn);
       await recordAudit(actor, { action: "Assignment ended", entityType: "Assignment", entityId: replaced.id, clientId: replaced.client_id, details: `Replaced by #${newId}` }, conn);
+      const copied = await copyActiveGrants(replaced.id, newId, actor.id, conn);
+      if (copied) {
+        await recordAudit(actor, { action: "JournL modules carried over", entityType: "Assignment", entityId: newId, clientId: input.client_id, details: `${copied} module grant(s) from #${replaced.id}` }, conn);
+      }
     }
     return newId;
   });

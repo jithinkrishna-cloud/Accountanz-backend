@@ -15,8 +15,15 @@ export interface DocumentRow {
   mime_type: string | null;
   status: DocumentStatus;
   uploaded_by_email: string | null;
+  uploaded_by_name: string | null;
+  from_client: 0 | 1;
+  request_id: number | null;
+  task_id: number | null;
   created_at: string;
 }
+
+export const REQUEST_STATUSES = ["open", "fulfilled", "cancelled"] as const;
+export type RequestStatus = (typeof REQUEST_STATUSES)[number];
 
 export interface DocumentRequestRow {
   id: number;
@@ -26,5 +33,7 @@ export interface DocumentRequestRow {
   requested_by_email: string | null;
   due_date: string | null;
   period: string | null;
-  status: "open" | "fulfilled" | "cancelled";
+  status: RequestStatus;
+  task_id: number | null;
+  created_at: string;
 }

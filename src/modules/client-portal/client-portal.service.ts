@@ -1,10 +1,13 @@
+import { env } from "../../config/env.js";
 import { pool, withTransaction } from "../../database/connection.js";
 import type { AuthUser } from "../../types/auth.types.js";
 import { AppError } from "../../utils/app-error.js";
+import { encryptSecret } from "../../utils/crypto.js";
 import { deleteFile, openFile, saveFile } from "../../utils/file-storage.js";
 import { recordAudit } from "../audit/audit.service.js";
 import { notifyApprovalDecided, notifyClientMessage, notifyDocumentReceived } from "../notifications/notification.service.js";
 import { setClientSoftware } from "../integrations/integration.repository.js";
+import { journlGateway } from "../integrations/journl.gateway.js";
 import * as repo from "./client-portal.repository.js";
 import { NOTIFICATION_PREFS, type ClientContext, type NotificationPrefs } from "./client-portal.types.js";
 import type { ApprovalDecisionInput, ConnectJournlInput, NewThreadInput, SettingsInput, UploadMeta } from "./client-portal.validation.js";
@@ -40,17 +43,56 @@ export const getTeam = (ctx: ClientContext) => repo.team(ctx.clientId);
 export const getSoftware = (ctx: ClientContext) => repo.software(ctx.clientId);
 
 /**
- * The company owner links their JournL organisation. It is saved as "pending" until the Accountanz team
- * verifies access (admin health check), since there is no live JournL API call yet.
+ * "Sign in with JournL": the owner signs in with their JournL login, JournL confirms which company they own,
+ * and the connection is verified and connected straight away. The password goes to JournL once and is not kept.
+ * If the JournL account owns several companies, the owner picks one (company_id) and signs in again.
  */
 export async function connectJournl(actor: AuthUser, ctx: ClientContext, input: ConnectJournlInput) {
   if (ctx.role !== "owner") throw AppError.forbidden("Only the company owner can connect accounting software");
+
+  const result = await journlGateway.signIn(input.journl_email, input.journl_password);
+  if (result.kind === "unavailable") throw new AppError("UNAVAILABLE", result.reason);
+  if (result.kind === "rejected") {
+    throw new AppError("VALIDATION_ERROR", result.reason, result.field ? { fieldErrors: { [result.field]: [result.reason] } } : undefined);
+  }
+
+  const org = result.companies.length === 1 ? result.companies[0] : result.companies.find((c) => c.id === input.company_id);
+  if (!org) {
+    const message = input.company_id ? "That company isn't one of your JournL companies" : "Your JournL account has several companies. Choose the one for this business.";
+    throw new AppError("VALIDATION_ERROR", message, {
+      fieldErrors: { company_id: [message] },
+      companies: result.companies.map((c) => ({ id: c.id, name: c.name })),
+    });
+  }
+
+  const note = `Confirmed by JournL sign-in as ${result.journlEmail}: company ${org.id} (${org.name})`;
   await withTransaction(async (conn) => {
     const existing = await repo.lockJournlConnection(ctx.clientId, conn);
     if (existing?.status === "connected") throw AppError.conflict("JournL is already connected for your company");
-    const id = await repo.saveJournlConnection(ctx.clientId, existing?.id ?? null, input.external_org_name, input.external_org_id, conn);
+    if (await repo.journlOrgTakenBy(org.id, ctx.clientId, conn)) {
+      throw AppError.conflict("This JournL company is already connected to another Accountanz client");
+    }
+    // Keep JournL's session (encrypted) so Accountanz can read the company's data until it expires; only for this company.
+    const session =
+      result.session && env.JOURNL_TOKEN_KEY && result.companies.length === 1
+        ? { tokenEnc: encryptSecret(result.session.token, env.JOURNL_TOKEN_KEY), expiresAt: result.session.expiresAt }
+        : null;
+    const id = await repo.saveJournlConnection(ctx.clientId, existing?.id ?? null, org, actor.id, note, session, conn);
     await setClientSoftware(ctx.clientId, "journl", conn);
-    await recordAudit(actor, { action: "JournL connection requested", entityType: "IntegrationConnection", entityId: id, clientId: ctx.clientId, details: `${input.external_org_name} (${input.external_org_id})` }, conn);
+    await recordAudit(actor, { action: "JournL connected", entityType: "IntegrationConnection", entityId: id, clientId: ctx.clientId, details: note }, conn);
+  });
+  return repo.software(ctx.clientId);
+}
+
+/** The company owner withdraws Accountanz's access to their JournL organisation. */
+export async function disconnectJournl(actor: AuthUser, ctx: ClientContext) {
+  if (ctx.role !== "owner") throw AppError.forbidden("Only the company owner can disconnect accounting software");
+  await withTransaction(async (conn) => {
+    const existing = await repo.lockJournlConnection(ctx.clientId, conn);
+    if (!existing || existing.status === "disconnected") throw AppError.conflict("JournL is not connected for your company");
+    await repo.disconnectJournlConnection(existing.id, conn);
+    await setClientSoftware(ctx.clientId, "none", conn);
+    await recordAudit(actor, { action: "JournL disconnected", entityType: "IntegrationConnection", entityId: existing.id, clientId: ctx.clientId, details: "Disconnected by the company owner" }, conn);
   });
   return repo.software(ctx.clientId);
 }

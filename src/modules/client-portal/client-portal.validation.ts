@@ -9,9 +9,13 @@ export const uploadMetaSchema = z.object({
   request_id: z.coerce.number().int().positive().optional().or(z.literal("").transform(() => undefined)),
 });
 
+/** "Sign in with JournL": the owner's JournL login, forwarded once to JournL and never stored. */
 export const connectJournlSchema = z.object({
-  external_org_name: z.string().trim().min(2, "Enter your JournL organisation name").max(200),
-  external_org_id: z.string().trim().min(2, "Enter your JournL organisation ID").max(100),
+  journl_email: z.email("Enter your JournL email").max(150),
+  journl_password: z.string().min(1, "Enter your JournL password").max(128),
+  /** Needed only when the JournL account owns more than one company. */
+  company_id: z.string().trim().max(100).optional(),
+  authorize: z.literal(true, "Tick the box to authorize Accountanz"),
 });
 
 export const tasksQuerySchema = z.object({ period: periodSchema.optional() });
