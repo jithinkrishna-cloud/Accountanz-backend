@@ -1,7 +1,9 @@
 import type { AuthUser } from "../../types/auth.types.js";
 import { AppError } from "../../utils/app-error.js";
 import { clientScope, isAdmin, isClientReviewer, requireClientAccess } from "../access/client-access.js";
-import { getJournlOverview } from "../integrations/journl-data.service.js";
+import { getJournlOverview, openJournlSession } from "../integrations/journl-data.service.js";
+import { JOURNL_VIEWS, MODULE_TABS } from "../integrations/journl-views.js";
+import type { JournlViewQuery } from "./workspace.validation.js";
 import { assessChecklist, recentPeriods, setStatus as setClosingStatus } from "../closing/closing.service.js";
 import { checklist as closingChecklist, currentStatus } from "../closing/closing.repository.js";
 import { withTransaction } from "../../database/connection.js";
@@ -112,4 +114,66 @@ export async function clientJournlData(actor: AuthUser, clientId: number, period
   const connection = await repo.journlConnection(clientId);
   if (!connection || connection.status !== "connected") throw AppError.conflict("This client hasn't connected JournL yet");
   return getJournlOverview(connection.id, period);
+}
+
+/** Module keys this person may read in a client's JournL today (all of them for admins). */
+async function readableModules(actor: AuthUser, clientId: number): Promise<string[]> {
+  if (isAdmin(actor)) return Object.keys(MODULE_TABS);
+  const perms = await myClientPermissions(actor, clientId);
+  return [...new Set(perms.flatMap((p) => p.modules.filter((m) => m.effective_actions.includes("view")).map((m) => m.module_key)))];
+}
+
+/**
+ * The bookkeeper's JournL workspace: each of their clients, which JournL modules they may read there, and whether
+ * Accountanz currently holds a JournL session for it. Feeds the "Accounting — JournL" pages.
+ */
+export async function journlWorkspace(actor: AuthUser) {
+  const clients = await repo.clientOptions(scopeOf(actor));
+  const items = await Promise.all(
+    clients.map(async (c) => {
+      const [modules, connection] = await Promise.all([readableModules(actor, c.value), repo.journlConnection(c.value)]);
+      return {
+        client_id: c.value,
+        client_name: c.label,
+        connected: connection?.status === "connected",
+        org_id: connection?.external_org_id ?? null,
+        org_name: connection?.external_org_name ?? null,
+        session_until: connection?.session_until ?? null,
+        modules,
+      };
+    }),
+  );
+  return {
+    modules: Object.entries(MODULE_TABS).map(([key, tabs]) => ({ key, tabs: tabs.map((t) => ({ key: t, label: JOURNL_VIEWS[t]!.label })) })),
+    clients: items,
+  };
+}
+
+/** One read-only JournL view for a client: assignment, engagement, JournL access and the module grant must all allow it. */
+export async function clientJournlView(actor: AuthUser, clientId: number, viewKey: string, q: JournlViewQuery) {
+  await requireClientAccess(actor, clientId);
+  const view = JOURNL_VIEWS[viewKey];
+  if (!view) throw AppError.notFound("JournL view");
+  if (!(await readableModules(actor, clientId)).includes(view.module)) {
+    throw AppError.forbidden(`You don't have ${view.module.replace("_", " ")} access in this client's JournL. An admin grants it under Assignments → JournL modules.`);
+  }
+  const connection = await repo.journlConnection(clientId);
+  if (!connection || connection.status !== "connected") throw AppError.conflict("This client hasn't connected JournL yet");
+  const { token } = await openJournlSession(connection.id);
+  const result = await view.load(token, q);
+  if (result.kind === "expired") throw AppError.conflict("The JournL session has expired. Ask the client owner to refresh it from their portal.");
+  if (result.kind === "failed") throw AppError.conflict(result.reason);
+  return {
+    view: view.key,
+    module: view.module,
+    label: view.label,
+    uses_period: view.usesPeriod,
+    period: { from: q.from, to: q.to },
+    columns: view.columns,
+    rows: result.data.rows,
+    total: result.data.total,
+    page: q.page,
+    page_size: q.pageSize,
+    drill: result.data.drill ?? null,
+  };
 }

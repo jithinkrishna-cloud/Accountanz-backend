@@ -13,7 +13,7 @@ type Num = number | string | null | undefined;
 const num = (v: Num) => (v == null || v === "" ? 0 : Number(v) || 0);
 
 /** JournL dates come back as ISO timestamps in UTC; the books are kept in India time. */
-const istDate = (v: unknown): string | null => {
+export const istDate = (v: unknown): string | null => {
   if (!v) return null;
   const d = new Date(String(v));
   return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
@@ -61,7 +61,8 @@ const ledgersOf = (node: TbNode): { name: string; debit: number; credit: number 
     c.children?.length ? ledgersOf(c) : [{ name: c.ledgerName ?? c.name ?? "—", ...drCr(c.closeDebit, c.closeCredit, c.closingBalance) }],
   ).filter((l) => l.debit || l.credit);
 
-export async function getJournlOverview(connectionId: number, period: { from: string; to: string }): Promise<JournlOverview> {
+/** A live JournL session for a connection: the decrypted owner token, the JournL company and when it expires. */
+export async function openJournlSession(connectionId: number) {
   const conn = await queryOne<{ external_org_id: string | null; status: string; access_token_enc: string | null; token_expires_at: string | null }>(
     `SELECT external_org_id, status, access_token_enc, token_expires_at FROM integration_connections WHERE id = ? AND provider = 'journl'`,
     [connectionId],
@@ -74,15 +75,15 @@ export async function getJournlOverview(connectionId: number, period: { from: st
   if (new Date(conn.token_expires_at).getTime() <= Date.now()) {
     throw AppError.conflict("The JournL session has expired (JournL sessions last 8 hours). Ask the owner to sign in with JournL again.");
   }
-
-  let token: string;
   try {
-    token = decryptSecret(conn.access_token_enc, env.JOURNL_TOKEN_KEY);
+    return { token: decryptSecret(conn.access_token_enc, env.JOURNL_TOKEN_KEY), companyId: conn.external_org_id, expiresAt: new Date(conn.token_expires_at) };
   } catch {
     throw AppError.conflict("The stored JournL session can't be read. Ask the owner to sign in with JournL again.");
   }
+}
 
-  const companyId = conn.external_org_id;
+export async function getJournlOverview(connectionId: number, period: { from: string; to: string }): Promise<JournlOverview> {
+  const { token, companyId, expiresAt } = await openJournlSession(connectionId);
   const companyRes = await journlGet<Record<string, unknown>>(token, `companyMaster/${encodeURIComponent(companyId)}`);
   if (companyRes.kind === "expired") throw AppError.conflict("The JournL session has expired. Ask the owner to sign in with JournL again.");
   const booksStart = companyRes.kind === "ok" ? istDate(companyRes.data.startDate) : null;
@@ -97,7 +98,7 @@ export async function getJournlOverview(connectionId: number, period: { from: st
 
   return {
     period,
-    session_expires_at: new Date(conn.token_expires_at).toISOString(),
+    session_expires_at: expiresAt.toISOString(),
     company: section({ status: "fulfilled", value: companyRes }, (c) => ({
       id: companyId,
       name: String(c.name ?? ""),
