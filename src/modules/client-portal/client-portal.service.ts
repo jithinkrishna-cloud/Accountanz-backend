@@ -5,14 +5,15 @@ import { AppError } from "../../utils/app-error.js";
 import { encryptSecret } from "../../utils/crypto.js";
 import { deleteFile, openFile, saveFile } from "../../utils/file-storage.js";
 import { recordAudit } from "../audit/audit.service.js";
-import { notifyApprovalDecided, notifyClientMessage, notifyDocumentReceived } from "../notifications/notification.service.js";
+import * as meetingRepo from "../communication/communication.repository.js";
+import { notifyApprovalDecided, notifyClientMessage, notifyDocumentReceived, notifyMeetingRequested } from "../notifications/notification.service.js";
 import { setClientSoftware } from "../integrations/integration.repository.js";
 import { journlGateway } from "../integrations/journl.gateway.js";
 import { insertEngagement, updateEngagement as updateEngagementRow } from "../engagements/engagement.repository.js";
 import { findPackageById, listPackages } from "../packages/package.repository.js";
 import * as repo from "./client-portal.repository.js";
 import { NOTIFICATION_PREFS, type ClientContext, type NotificationPrefs } from "./client-portal.types.js";
-import type { ApprovalDecisionInput, ConnectJournlInput, NewThreadInput, SettingsInput, UploadMeta } from "./client-portal.validation.js";
+import type { ApprovalDecisionInput, ConnectJournlInput, MeetingRequestInput, NewThreadInput, SettingsInput, UploadMeta } from "./client-portal.validation.js";
 
 const currentPeriod = () => {
   const d = new Date();
@@ -108,6 +109,31 @@ export const getReports = (ctx: ClientContext) => repo.listReports(ctx.clientId)
 export const getApprovals = (ctx: ClientContext) => repo.listApprovals(ctx.clientId);
 export const getThreads = (ctx: ClientContext) => repo.listThreads(ctx.clientId);
 export const getMeetings = (ctx: ClientContext) => repo.listMeetings(ctx.clientId);
+
+// ── Meeting requests: the client asks, the team schedules or declines ──
+const MAX_PENDING_REQUESTS = 3;
+
+export const getMeetingRequests = (ctx: ClientContext) => meetingRepo.clientMeetingRequests(ctx.clientId);
+
+export async function requestMeeting(actor: AuthUser, ctx: ClientContext, input: MeetingRequestInput) {
+  if ((await meetingRepo.countPendingRequests(ctx.clientId)) >= MAX_PENDING_REQUESTS) {
+    throw AppError.conflict(`You already have ${MAX_PENDING_REQUESTS} requests waiting. Your team will reply soon, or withdraw one first.`);
+  }
+  const preferredTimes = input.preferred_times.map((t) => new Date(t).toISOString()).sort();
+  const id = await meetingRepo.insertMeetingRequest({ clientId: ctx.clientId, requestedBy: actor.id, topic: input.topic, notes: input.notes ?? null, preferredTimes, durationMinutes: input.duration_minutes });
+  await recordAudit(actor, { action: "Meeting requested", entityType: "MeetingRequest", entityId: id, clientId: ctx.clientId, details: input.topic });
+  void notifyMeetingRequested(id);
+  return (await meetingRepo.findMeetingRequest(id))!;
+}
+
+/** The person who asked, or the owner, can withdraw a request the team hasn't answered yet. */
+export async function withdrawMeetingRequest(actor: AuthUser, ctx: ClientContext, id: number) {
+  const request = await meetingRepo.findMeetingRequest(id);
+  if (!request || request.client_id !== ctx.clientId) throw AppError.notFound("Meeting request");
+  if (request.requested_by !== actor.id && ctx.role !== "owner") throw AppError.forbidden("Only the person who asked, or the company owner, can withdraw this");
+  if (!(await meetingRepo.closeMeetingRequest(id, { status: "withdrawn", decidedBy: actor.id }))) throw AppError.conflict("Your team has already answered this request");
+  await recordAudit(actor, { action: "Meeting request withdrawn", entityType: "MeetingRequest", entityId: id, clientId: ctx.clientId, details: request.topic });
+}
 
 export async function getTasks(ctx: ClientContext, period?: string) {
   const p = period ?? currentPeriod();

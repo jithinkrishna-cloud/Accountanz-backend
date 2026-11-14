@@ -3,9 +3,10 @@
  * They never throw: callers fire them after their transaction commits (`void notifyX(...)`), so a mail
  * problem can't undo or slow down the action. Idempotency keys stop duplicates on retries.
  */
-import { approvalDecidedEmail, approvalRequestedEmail, clientMessageEmail, companyRegisteredEmail, documentRequestedEmail, meetingCancelledEmail, meetingScheduledEmail, reportPublishedEmail, teamMessageEmail, documentReceivedEmail, invoiceIssuedEmail, taskAssignedEmail, taskReviewedEmail, taskSubmittedEmail } from "../../emails/templates.js";
+import { approvalDecidedEmail, approvalRequestedEmail, clientMessageEmail, companyRegisteredEmail, documentRequestedEmail, meetingCancelledEmail, meetingRequestDeclinedEmail, meetingRequestedEmail, meetingScheduledEmail, reportPublishedEmail, teamMessageEmail, documentReceivedEmail, invoiceIssuedEmail, taskAssignedEmail, taskReviewedEmail, taskSubmittedEmail } from "../../emails/templates.js";
 import { logger } from "../../utils/logger.js";
 import { sendMail } from "../../utils/mailer.js";
+import { findMeetingRequest } from "../communication/communication.repository.js";
 import { findTask } from "../tasks/task.repository.js";
 import * as repo from "./notification.repository.js";
 
@@ -158,6 +159,39 @@ export const notifyMeetingScheduled = (meetingId: number, d: { clientId: number;
       const content = meetingScheduledEmail({ recipientName: a.name, clientName, organiser: d.organiser, title: d.title, when: d.when, link: d.link, forClient: a.isClient });
       await sendMail({ to: a.email, ...content, idempotencyKey: `meeting-scheduled/${meetingId}/${a.email}` });
     }
+  });
+
+const istTime = (iso: string) => `${new Date(iso).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" })} IST`;
+
+/** A client asked for a meeting: their team today hears; if nobody is assigned, the admins do. */
+export const notifyMeetingRequested = (requestId: number) =>
+  safely("meeting-requested", async () => {
+    const r = await findMeetingRequest(requestId);
+    if (!r) return;
+    const team = await repo.listClientTeamContacts(r.client_id);
+    const [recipients, path] = team.length ? [team, "/team/meetings"] : [await repo.listAdminContacts(), "/admin/meetings"];
+    for (const m of recipients) {
+      const content = meetingRequestedEmail({
+        recipientName: m.full_name,
+        clientName: r.client_name,
+        requester: r.requester ?? "Someone",
+        topic: r.topic,
+        notes: r.notes,
+        times: r.preferred_times.map(istTime),
+        durationMinutes: r.duration_minutes,
+        path,
+      });
+      await sendMail({ to: m.email, ...content, idempotencyKey: `meeting-requested/${requestId}/${m.email}` });
+    }
+  });
+
+/** The team declined a meeting request: the person who asked hears why. */
+export const notifyMeetingRequestDeclined = (requestId: number, d: { clientId: number; requestedBy: number | null; topic: string; decidedBy: string; reason: string }) =>
+  safely("meeting-request-declined", async () => {
+    const to = await repo.findActiveContact(d.requestedBy);
+    if (!to) return;
+    const content = meetingRequestDeclinedEmail({ recipientName: to.full_name, topic: d.topic, decidedBy: d.decidedBy, reason: d.reason });
+    await sendMail({ to: to.email, ...content, idempotencyKey: `meeting-request-declined/${requestId}/${to.email}` });
   });
 
 /** Everyone who was invited (except whoever cancelled) hears that the meeting is off. */

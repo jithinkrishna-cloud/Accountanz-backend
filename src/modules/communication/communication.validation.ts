@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { listQuerySchema } from "../../utils/pagination.js";
-import { THREAD_VISIBILITIES } from "./communication.types.js";
+import { MEETING_REQUEST_STATUSES, THREAD_VISIBILITIES } from "./communication.types.js";
 
 const body = z.string().trim().min(1, "Write a message").max(5000, "Keep messages under 5000 characters");
 
@@ -44,7 +44,18 @@ export const newMeetingSchema = z
   .refine((v) => new Date(v.ends_at) > new Date(v.starts_at), { path: ["ends_at"], message: "End after the start" })
   .refine((v) => new Date(v.starts_at) > new Date(), { path: ["starts_at"], message: "Choose a time in the future" });
 
+export const meetingRequestListQuerySchema = listQuerySchema.extend({
+  client_id: z.coerce.number().int().positive().optional(),
+  status: z.enum(MEETING_REQUEST_STATUSES).optional(),
+});
+
+export const declineRequestSchema = z.object({
+  reason: z.string().trim().min(2, "Tell the client why, or suggest another way").max(500),
+});
+
 export type ThreadListQuery = z.infer<typeof threadListQuerySchema>;
+export type MeetingRequestListQuery = z.infer<typeof meetingRequestListQuerySchema>;
+export type DeclineRequestInput = z.infer<typeof declineRequestSchema>;
 export type NewThreadInput = z.infer<typeof newThreadSchema>;
 export type ReplyInput = z.infer<typeof replySchema>;
 export type MeetingListQuery = z.infer<typeof meetingListQuerySchema>;

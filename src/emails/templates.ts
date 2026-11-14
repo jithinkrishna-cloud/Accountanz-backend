@@ -310,6 +310,39 @@ export function meetingCancelledEmail(d: { recipientName: string; clientName: st
   };
 }
 
+/** A client asked for a meeting: to their accounting team (or admins when no team is assigned). */
+export function meetingRequestedEmail(d: { recipientName: string; clientName: string; requester: string; topic: string; notes: string | null; times: string[]; durationMinutes: number; path: string }): EmailContent {
+  const url = appUrl(d.path);
+  return {
+    subject: `Meeting request from ${d.clientName}: ${d.topic}`,
+    html: layout({
+      title: `${d.clientName} would like a meeting`,
+      preheader: `${d.requester} asked to discuss ${d.topic}`,
+      body:
+        paragraph(`Hi ${d.recipientName},`) +
+        paragraph(`${d.requester} from ${d.clientName} asked for a ${d.durationMinutes}-minute meeting. Schedule it or reply with a reason from Meetings.`) +
+        facts([["Topic", d.topic], ...d.times.map((t, i): [string, string] => [`Preferred time ${i + 1}`, t])]) +
+        (d.notes ? quote(d.notes) : "") +
+        button("Open meeting requests", url),
+    }),
+    text: plainText(`Hi ${d.recipientName},`, `${d.requester} from ${d.clientName} asked for a ${d.durationMinutes}-minute meeting about "${d.topic}".`, `Preferred times: ${d.times.join("; ")}`, d.notes ?? "", `Meetings: ${url}`),
+  };
+}
+
+/** The team declined a client's meeting request: to the person who asked. */
+export function meetingRequestDeclinedEmail(d: { recipientName: string; topic: string; decidedBy: string; reason: string }): EmailContent {
+  const url = appUrl("/app/meetings");
+  return {
+    subject: `About your meeting request: ${d.topic}`,
+    html: layout({
+      title: "About your meeting request",
+      preheader: `${d.decidedBy} replied to your request`,
+      body: paragraph(`Hi ${d.recipientName},`) + paragraph(`${d.decidedBy} couldn't schedule the meeting you asked for about "${d.topic}":`) + quote(d.reason) + button("View meetings", url),
+    }),
+    text: plainText(`Hi ${d.recipientName},`, `${d.decidedBy} couldn't schedule the meeting you asked for about "${d.topic}":`, d.reason, `Meetings: ${url}`),
+  };
+}
+
 /** A staff member wrote in a thread: to the client (client threads) or to colleagues (internal threads). */
 export function teamMessageEmail(d: { recipientName: string; clientName: string; author: string; subject: string; body: string; forClient: boolean }): EmailContent {
   const url = appUrl(d.forClient ? "/app/messages" : "/team/messages");

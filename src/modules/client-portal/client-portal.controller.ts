@@ -39,6 +39,13 @@ export const reports = async (_req: Request, res: Response) => void res.json({ i
 export const approvals = async (_req: Request, res: Response) => void res.json({ items: await service.getApprovals(ctx(res)) });
 export const threads = async (_req: Request, res: Response) => void res.json({ items: await service.getThreads(ctx(res)) });
 export const meetings = async (_req: Request, res: Response) => void res.json({ items: await service.getMeetings(ctx(res)) });
+export const meetingRequests = async (_req: Request, res: Response) => void res.json({ items: await service.getMeetingRequests(ctx(res)) });
+export const requestMeeting = async (req: Request, res: Response) => void res.status(201).json(await service.requestMeeting(req.user!, ctx(res), req.body));
+
+export async function withdrawMeetingRequest(req: Request, res: Response) {
+  await service.withdrawMeetingRequest(req.user!, ctx(res), idOf(res));
+  res.status(204).end();
+}
 export const billing = async (_req: Request, res: Response) => void res.json(await service.getBilling(ctx(res)));
 export const tasks = async (_req: Request, res: Response) => void res.json(await service.getTasks(ctx(res), (res.locals.query as { period?: string }).period));
 export const settings = async (_req: Request, res: Response) => void res.json(await service.getSettings(ctx(res)));

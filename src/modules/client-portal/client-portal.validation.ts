@@ -34,6 +34,21 @@ export const newThreadSchema = z.object({
 
 export const replySchema = z.object({ body: z.string().trim().min(1, "Write a message").max(5000) });
 
+export const MEETING_DURATIONS = [15, 30, 45, 60] as const;
+
+/** A client asks for a meeting with 1-3 preferred start times; the team confirms one (or another time). */
+export const meetingRequestSchema = z.object({
+  topic: z.string().trim().min(2, "Tell us what you'd like to discuss").max(200),
+  notes: optionalText(2000),
+  preferred_times: z
+    .array(z.iso.datetime({ offset: true, message: "Choose a date and time" }))
+    .min(1, "Suggest at least one time")
+    .max(3, "Suggest up to three times")
+    .refine((ts) => ts.every((t) => new Date(t) > new Date()), "Suggest times in the future")
+    .refine((ts) => new Set(ts.map((t) => new Date(t).getTime())).size === ts.length, "Suggest different times"),
+  duration_minutes: z.coerce.number().refine((n) => (MEETING_DURATIONS as readonly number[]).includes(n), "Choose a length").default(30),
+});
+
 export const settingsSchema = z
   .object({
     full_name: z.string().trim().min(2, "Enter your name").max(150),
@@ -48,3 +63,4 @@ export type ApprovalDecisionInput = z.infer<typeof approvalDecisionSchema>;
 export type NewThreadInput = z.infer<typeof newThreadSchema>;
 export type SettingsInput = z.infer<typeof settingsSchema>;
 export type ConnectJournlInput = z.infer<typeof connectJournlSchema>;
+export type MeetingRequestInput = z.infer<typeof meetingRequestSchema>;

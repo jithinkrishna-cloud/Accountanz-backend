@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import type { IdParam } from "../../middleware/validate.js";
 import * as service from "./communication.service.js";
-import type { MeetingListQuery, NewMeetingInput, NewThreadInput, ReplyInput, ThreadListQuery } from "./communication.validation.js";
+import type { DeclineRequestInput, MeetingListQuery, MeetingRequestListQuery, NewMeetingInput, NewThreadInput, ReplyInput, ThreadListQuery } from "./communication.validation.js";
 
 const id = (res: Response) => (res.locals.params as IdParam).id;
 
@@ -14,5 +14,13 @@ export const schedule = async (req: Request, res: Response) => void res.status(2
 
 export async function cancelMeeting(req: Request, res: Response) {
   await service.cancelMeeting(req.user!, id(res));
+  res.status(204).end();
+}
+
+export const meetingRequests = async (req: Request, res: Response) => void res.json(await service.listMeetingRequests(req.user!, res.locals.query as MeetingRequestListQuery));
+export const scheduleRequest = async (req: Request, res: Response) => void res.status(201).json(await service.scheduleFromRequest(req.user!, id(res), req.body as NewMeetingInput));
+
+export async function declineRequest(req: Request, res: Response) {
+  await service.declineMeetingRequest(req.user!, id(res), (req.body as DeclineRequestInput).reason);
   res.status(204).end();
 }

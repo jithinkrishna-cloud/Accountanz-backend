@@ -6,7 +6,7 @@ import { idParam, validate } from "../../middleware/validate.js";
 import { CLIENT_ROLES } from "../../types/auth.types.js";
 import * as c from "./client-portal.controller.js";
 import { requireContext } from "./client-portal.service.js";
-import { approvalDecisionSchema, connectJournlSchema, newThreadSchema, replySchema, settingsSchema, tasksQuerySchema, uploadMetaSchema } from "./client-portal.validation.js";
+import { approvalDecisionSchema, connectJournlSchema, meetingRequestSchema, newThreadSchema, replySchema, settingsSchema, tasksQuerySchema, uploadMetaSchema } from "./client-portal.validation.js";
 
 /** Resolves the signed-in user's company once per request; every handler reads only that company. */
 const withClient: RequestHandler = async (req, res, next) => {
@@ -41,6 +41,9 @@ clientPortalRoutes.post("/messages", validate({ body: newThreadSchema }), c.star
 clientPortalRoutes.get("/messages/:id", validate({ params: idParam }), c.thread);
 clientPortalRoutes.post("/messages/:id", validate({ params: idParam, body: replySchema }), c.reply);
 clientPortalRoutes.get("/meetings", c.meetings);
+clientPortalRoutes.get("/meeting-requests", c.meetingRequests);
+clientPortalRoutes.post("/meeting-requests", validate({ body: meetingRequestSchema }), c.requestMeeting);
+clientPortalRoutes.post("/meeting-requests/:id/withdraw", validate({ params: idParam }), c.withdrawMeetingRequest);
 clientPortalRoutes.get("/billing", c.billing);
 clientPortalRoutes.get("/packages", c.packages);
 clientPortalRoutes.post("/packages/:id/choose", validate({ params: idParam }), c.choosePackage);

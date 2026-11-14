@@ -3,8 +3,8 @@ import { execute, query, queryOne, type Param } from "../../database/connection.
 import { offsetOf, type Paged } from "../../utils/pagination.js";
 import { activeAssignmentSql } from "../access/client-access.js";
 import type { Scope } from "../documents/document.repository.js";
-import type { MeetingRow, MessageRow, ThreadRow, ThreadVisibility } from "./communication.types.js";
-import type { MeetingListQuery, ThreadListQuery } from "./communication.validation.js";
+import type { MeetingRequestRow, MeetingRequestStatus, MeetingRow, MessageRow, ThreadRow, ThreadVisibility } from "./communication.types.js";
+import type { MeetingListQuery, MeetingRequestListQuery, ThreadListQuery } from "./communication.validation.js";
 
 const CLIENT_AUTHOR = `u.portal_role IN ('client_owner', 'client_member')`;
 const LAST = (col: string) => `(SELECT ${col} FROM messages m LEFT JOIN users u ON u.id = m.author_id WHERE m.thread_id = t.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1)`;
@@ -109,3 +109,57 @@ export const clientTeamUsers = (clientId: number) =>
   );
 
 export const findUserContact = (id: number) => queryOne<{ id: number; email: string; full_name: string }>(`SELECT id, email, full_name FROM users WHERE id = ?`, [id]);
+
+// ── Meeting requests (client asks, team schedules or declines) ──
+const REQUEST_SELECT = `
+  SELECT r.id, r.client_id, COALESCE(c.trade_name, c.legal_name) AS client_name, r.requested_by, ru.full_name AS requester,
+         r.topic, r.notes, r.preferred_times, r.duration_minutes, r.status, r.meeting_id,
+         du.full_name AS decided_by_name, r.decided_at, r.decline_reason, r.created_at
+    FROM meeting_requests r JOIN clients c ON c.id = r.client_id
+    LEFT JOIN users ru ON ru.id = r.requested_by LEFT JOIN users du ON du.id = r.decided_by`;
+
+export async function listMeetingRequests(q: MeetingRequestListQuery, scope: Scope): Promise<Paged<MeetingRequestRow>> {
+  const where = [scope.sql];
+  const params: Param[] = [...scope.params];
+  if (q.status) (where.push("r.status = ?"), params.push(q.status));
+  if (q.client_id) (where.push("r.client_id = ?"), params.push(q.client_id));
+  const whereSql = `WHERE ${where.join(" AND ")}`;
+  const items = await query<MeetingRequestRow>(`${REQUEST_SELECT} ${whereSql} ORDER BY r.created_at DESC, r.id DESC LIMIT ? OFFSET ?`, [...params, q.pageSize, offsetOf(q)]);
+  const total = await queryOne<{ n: number }>(`SELECT COUNT(*) AS n FROM meeting_requests r ${whereSql}`, params);
+  return { items, total: total?.n ?? 0, page: q.page, pageSize: q.pageSize };
+}
+
+/** A client's own requests: everything still pending, plus decisions from the last 30 days. */
+export const clientMeetingRequests = (clientId: number) =>
+  query<MeetingRequestRow>(
+    `${REQUEST_SELECT} WHERE r.client_id = ? AND (r.status = 'pending' OR r.created_at >= UTC_TIMESTAMP() - INTERVAL 30 DAY) ORDER BY r.created_at DESC, r.id DESC`,
+    [clientId],
+  );
+
+export const findMeetingRequest = (id: number) => queryOne<MeetingRequestRow>(`${REQUEST_SELECT} WHERE r.id = ?`, [id]);
+
+export const countPendingRequests = async (clientId: number) =>
+  (await queryOne<{ n: number }>(`SELECT COUNT(*) AS n FROM meeting_requests WHERE client_id = ? AND status = 'pending'`, [clientId]))?.n ?? 0;
+
+export async function insertMeetingRequest(r: { clientId: number; requestedBy: number; topic: string; notes: string | null; preferredTimes: string[]; durationMinutes: number }) {
+  return (
+    await execute(
+      `INSERT INTO meeting_requests (client_id, requested_by, topic, notes, preferred_times, duration_minutes) VALUES (?, ?, ?, ?, ?, ?)`,
+      [r.clientId, r.requestedBy, r.topic, r.notes, JSON.stringify(r.preferredTimes), r.durationMinutes],
+    )
+  ).insertId;
+}
+
+/** Moves a pending request to its outcome. False when it was no longer pending (someone else got there first). */
+export async function closeMeetingRequest(
+  id: number,
+  outcome: { status: Exclude<MeetingRequestStatus, "pending">; decidedBy: number; meetingId?: number; reason?: string | null },
+  db?: PoolConnection,
+) {
+  const r = await execute(
+    `UPDATE meeting_requests SET status = ?, decided_by = ?, decided_at = UTC_TIMESTAMP(), meeting_id = ?, decline_reason = ? WHERE id = ? AND status = 'pending'`,
+    [outcome.status, outcome.decidedBy, outcome.meetingId ?? null, outcome.reason ?? null, id],
+    db,
+  );
+  return r.affectedRows === 1;
+}

@@ -1,11 +1,12 @@
+import type { PoolConnection } from "mysql2/promise";
 import { withTransaction } from "../../database/connection.js";
 import type { AuthUser } from "../../types/auth.types.js";
 import { AppError } from "../../utils/app-error.js";
 import { clientScope, isAdmin, requireClientAccess } from "../access/client-access.js";
 import { recordAudit } from "../audit/audit.service.js";
-import { notifyMeetingCancelled, notifyMeetingScheduled, notifyTeamMessage } from "../notifications/notification.service.js";
+import { notifyMeetingCancelled, notifyMeetingRequestDeclined, notifyMeetingScheduled, notifyTeamMessage } from "../notifications/notification.service.js";
 import * as repo from "./communication.repository.js";
-import type { MeetingListQuery, NewMeetingInput, NewThreadInput, ThreadListQuery } from "./communication.validation.js";
+import type { MeetingListQuery, MeetingRequestListQuery, NewMeetingInput, NewThreadInput, ThreadListQuery } from "./communication.validation.js";
 
 /**
  * Staff side of client communication. Client threads are the same conversations the client sees in the portal;
@@ -58,7 +59,8 @@ export const listMeetings = (actor: AuthUser, q: MeetingListQuery) => repo.listM
 const toUtcDateTime = (iso: string) => new Date(iso).toISOString().slice(0, 19).replace("T", " ");
 const formatWhen = (iso: string) => `${new Date(iso).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" })} IST`;
 
-export async function scheduleMeeting(actor: AuthUser, input: NewMeetingInput) {
+/** `alsoInTransaction` runs inside the meeting's transaction (used to close the client's request atomically). */
+export async function scheduleMeeting(actor: AuthUser, input: NewMeetingInput, alsoInTransaction?: (meetingId: number, conn: PoolConnection) => Promise<void>) {
   await requireClientAccess(actor, input.client_id);
   const [team, clientUsers, organiser] = await Promise.all([repo.clientTeamUsers(input.client_id), input.invite_client ? repo.clientPortalUsers(input.client_id) : [], repo.findUserContact(actor.id)]);
   const invalid = input.staff_ids.filter((id) => !team.some((t) => t.id === id));
@@ -80,6 +82,7 @@ export async function scheduleMeeting(actor: AuthUser, input: NewMeetingInput) {
     );
     await repo.insertAttendees(meetingId, attendees.map((a) => ({ email: a.email, userId: a.id })), conn);
     await recordAudit(actor, { action: "Meeting scheduled", entityType: "Meeting", entityId: meetingId, clientId: input.client_id, details: `${input.title} · ${formatWhen(input.starts_at)}` }, conn);
+    if (alsoInTransaction) await alsoInTransaction(meetingId, conn);
     return meetingId;
   });
   void notifyMeetingScheduled(id, {
@@ -114,4 +117,36 @@ export async function cancelMeeting(actor: AuthUser, id: number) {
     when,
     attendees: attendees.filter((a) => a.email !== actor.email).map((a) => ({ email: a.email, name: a.full_name ?? a.email, isClient: a.is_client === 1 })),
   });
+}
+
+// ── Meeting requests from clients ──
+export const listMeetingRequests = (actor: AuthUser, q: MeetingRequestListQuery) => repo.listMeetingRequests(q, clientScope(actor, "r.client_id"));
+
+const ALREADY_ANSWERED = "Someone has already answered this request";
+
+async function requirePendingRequest(actor: AuthUser, id: number) {
+  const request = await repo.findMeetingRequest(id);
+  if (!request) throw AppError.notFound("Meeting request");
+  await requireClientAccess(actor, request.client_id, "Meeting request");
+  if (request.status !== "pending") throw AppError.conflict(request.status === "withdrawn" ? "The client withdrew this request" : ALREADY_ANSWERED);
+  return request;
+}
+
+/** Schedules the meeting and closes the request in one transaction, so two colleagues can't both schedule it. */
+export async function scheduleFromRequest(actor: AuthUser, id: number, input: NewMeetingInput) {
+  const request = await requirePendingRequest(actor, id);
+  if (input.client_id !== request.client_id) throw new AppError("VALIDATION_ERROR", "This request is from a different client");
+  return scheduleMeeting(actor, input, async (meetingId, conn) => {
+    if (!(await repo.closeMeetingRequest(id, { status: "scheduled", decidedBy: actor.id, meetingId }, conn))) throw AppError.conflict(ALREADY_ANSWERED);
+    await recordAudit(actor, { action: "Meeting request scheduled", entityType: "MeetingRequest", entityId: id, clientId: request.client_id, details: request.topic }, conn);
+  });
+}
+
+export async function declineMeetingRequest(actor: AuthUser, id: number, reason: string) {
+  const request = await requirePendingRequest(actor, id);
+  await withTransaction(async (conn) => {
+    if (!(await repo.closeMeetingRequest(id, { status: "declined", decidedBy: actor.id, reason }, conn))) throw AppError.conflict(ALREADY_ANSWERED);
+    await recordAudit(actor, { action: "Meeting request declined", entityType: "MeetingRequest", entityId: id, clientId: request.client_id, details: `${request.topic} · ${reason}` }, conn);
+  });
+  void notifyMeetingRequestDeclined(id, { clientId: request.client_id, requestedBy: request.requested_by, topic: request.topic, decidedBy: actor.fullName, reason });
 }

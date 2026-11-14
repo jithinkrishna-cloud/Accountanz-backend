@@ -24,6 +24,28 @@ export interface MessageRow {
   from_client: 0 | 1;
 }
 
+export const MEETING_REQUEST_STATUSES = ["pending", "scheduled", "declined", "withdrawn"] as const;
+export type MeetingRequestStatus = (typeof MEETING_REQUEST_STATUSES)[number];
+
+/** preferred_times: UTC ISO strings proposed by the client. */
+export interface MeetingRequestRow {
+  id: number;
+  client_id: number;
+  client_name: string;
+  requested_by: number | null;
+  requester: string | null;
+  topic: string;
+  notes: string | null;
+  preferred_times: string[];
+  duration_minutes: number;
+  status: MeetingRequestStatus;
+  meeting_id: number | null;
+  decided_by_name: string | null;
+  decided_at: string | null;
+  decline_reason: string | null;
+  created_at: string;
+}
+
 export interface MeetingRow {
   id: number;
   client_id: number;
