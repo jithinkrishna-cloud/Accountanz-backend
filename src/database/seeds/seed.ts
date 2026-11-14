@@ -2,7 +2,7 @@
  * Loads demo data modelled on the existing Accountanz workspace. Development only.
  *
  * Master data is kept: settings, the service/package catalogue, task templates, the knowledge base, JournL modules,
- * and staff accounts. Missing master rows are added; existing ones (and staff passwords) are left untouched.
+ * staff accounts, and the Workspace (spaces, work items, sprints, comments, attachments). Missing master rows are added; existing ones (and staff passwords) are left untouched.
  * Everything else is wiped and reseeded: clients and all their work, client logins, sessions, tokens and audit logs.
  * New staff accounts get SEED_PASSWORD; demo client logins get 12345678.
  */
@@ -43,6 +43,17 @@ const MASTER_TABLES = new Set([
   "journl_module_actions",
   "users", // staff accounts kept; client logins deleted below
   "staff_profiles",
+  // Workspace: the team's own project work, not demo accounting data. Client links are re-pointed after reseeding.
+  "project_spaces",
+  "project_space_members",
+  "project_statuses",
+  "project_sprints",
+  "project_items",
+  "project_item_labels",
+  "project_item_comments",
+  "project_item_activity",
+  "project_item_attachments",
+  "project_item_worklogs",
 ]);
 
 const period = (offsetMonths = 0) => {
@@ -60,6 +71,14 @@ async function main() {
 
   await withTransaction(async (conn) => {
     await deleteReportFiles(conn); // stored PDFs of the reports about to be wiped
+    // Workspace spaces and items are kept, but clients are recreated with new ids: remember each link by client name.
+    const workspaceClientLinks = await query<{ tbl: "project_spaces" | "project_items"; id: number; legal_name: string | null }>(
+      `SELECT 'project_spaces' AS tbl, s.id, c.legal_name FROM project_spaces s LEFT JOIN clients c ON c.id = s.client_id WHERE s.client_id IS NOT NULL
+       UNION ALL
+       SELECT 'project_items', i.id, c.legal_name FROM project_items i LEFT JOIN clients c ON c.id = i.client_id WHERE i.client_id IS NOT NULL`,
+      [],
+      conn,
+    );
     await conn.query("SET FOREIGN_KEY_CHECKS = 0");
     const tables = await query<{ t: string }>(`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = ?`, [env.DB_NAME], conn);
     for (const { t } of tables) if (!MASTER_TABLES.has(t)) await conn.query(`TRUNCATE TABLE \`${t}\``);
@@ -328,6 +347,15 @@ async function main() {
       }
 
       await ins(conn, "audit_logs", { actor_id: reviewer, actor_email: null, actor_role: "finance_manager", client_id: clientId, action: "Period closed", entity_type: "PeriodClosing", entity_id: prev, details: `${prev} closed for ${trade_name}` });
+    }
+
+    // Re-point Workspace client links at the reseeded clients (same legal name); a client that no longer exists is unlinked.
+    for (const link of workspaceClientLinks) {
+      await execute(
+        `UPDATE ${link.tbl} SET client_id = (SELECT id FROM clients WHERE legal_name = ? LIMIT 1) WHERE id = ?`,
+        [link.legal_name, link.id],
+        conn,
+      );
     }
 
     // Fill actor e-mails for the seeded audit rows (snapshots, as the service would write them).

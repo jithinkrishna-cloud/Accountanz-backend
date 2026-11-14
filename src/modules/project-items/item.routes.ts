@@ -3,7 +3,7 @@ import { singleFile } from "../../middleware/upload.js";
 import { validate } from "../../middleware/validate.js";
 import * as c from "./item.controller.js";
 import { ATTACHMENT_EXTENSIONS, ATTACHMENT_MAX_MB } from "./item.types.js";
-import { childParam, commentSchema, createItemSchema, itemParam, listItemsQuery, moveItemSchema, updateItemSchema } from "./item.validation.js";
+import { childParam, commentSchema, createItemSchema, itemParam, listItemsQuery, moveItemSchema, updateItemSchema, worklogSchema } from "./item.validation.js";
 
 /** /api/projects/:key/items. Mounted after the space is resolved. */
 export const itemRoutes = Router({ mergeParams: true });
@@ -22,6 +22,10 @@ itemRoutes.get("/:number/comments", validate({ params: itemParam }), c.comments)
 itemRoutes.post("/:number/comments", validate({ params: itemParam, body: commentSchema }), c.addComment);
 itemRoutes.patch("/:number/comments/:id", validate({ params: childParam, body: commentSchema }), c.editComment);
 itemRoutes.delete("/:number/comments/:id", validate({ params: childParam }), c.deleteComment);
+
+itemRoutes.get("/:number/worklogs", validate({ params: itemParam }), c.worklogs);
+itemRoutes.post("/:number/worklogs", validate({ params: itemParam, body: worklogSchema }), c.addWorklog);
+itemRoutes.delete("/:number/worklogs/:id", validate({ params: childParam }), c.deleteWorklog);
 
 itemRoutes.post("/:number/attachments", validate({ params: itemParam }), attachment, c.addAttachment);
 itemRoutes.get("/:number/attachments/:id", validate({ params: childParam }), c.downloadAttachment);

@@ -31,6 +31,9 @@ export interface ItemRow {
   client_id: number | null;
   client_name: string | null;
   story_points: number | null;
+  /** Original estimate and total logged work, in minutes (shown as 1d 4h; 1d = 8h). */
+  original_estimate_minutes: number | null;
+  time_spent_minutes: number;
   start_date: string | null;
   due_date: string | null;
   rank: number;
@@ -52,5 +55,16 @@ export interface AttachmentRow {
   size_bytes: number;
   uploaded_by: number | null;
   uploaded_by_name: string | null;
+  created_at: string;
+}
+
+/** Time logged against a work item. */
+export interface WorklogRow {
+  id: number;
+  user_id: number | null;
+  user_name: string | null;
+  minutes: number;
+  work_date: string;
+  note: string | null;
   created_at: string;
 }

@@ -49,6 +49,33 @@ export async function insertSpace(input: CreateSpaceInput, userId: number, conn:
   return spaceId;
 }
 
+/** What deleting a space removes (for the audit log), and the stored files to delete afterwards. */
+export async function spaceDeletionInfo(spaceId: number, conn: PoolConnection) {
+  const counts = (await queryOne<{ items: number; sprints: number; comments: number }>(
+    `SELECT (SELECT COUNT(*) FROM project_items WHERE space_id = ?) AS items,
+            (SELECT COUNT(*) FROM project_sprints WHERE space_id = ?) AS sprints,
+            (SELECT COUNT(*) FROM project_item_comments c JOIN project_items i ON i.id = c.item_id WHERE i.space_id = ?) AS comments`,
+    [spaceId, spaceId, spaceId],
+    conn,
+  ))!;
+  const files = await query<{ file_key: string }>(
+    `SELECT a.file_key FROM project_item_attachments a JOIN project_items i ON i.id = a.item_id WHERE i.space_id = ? FOR UPDATE`,
+    [spaceId],
+    conn,
+  );
+  return { ...counts, fileKeys: files.map((f) => f.file_key) };
+}
+
+/**
+ * Deletes a space and everything in it. Items go first (subtasks, then the rest), because items point at the
+ * space's statuses without ON DELETE; removing the space then cascades statuses, sprints and members.
+ */
+export async function deleteSpaceRows(spaceId: number, conn: PoolConnection) {
+  await execute(`DELETE FROM project_items WHERE space_id = ? AND parent_id IS NOT NULL`, [spaceId], conn);
+  await execute(`DELETE FROM project_items WHERE space_id = ?`, [spaceId], conn);
+  await execute(`DELETE FROM project_spaces WHERE id = ?`, [spaceId], conn);
+}
+
 export async function updateSpace(spaceId: number, input: UpdateSpaceInput) {
   const sets: string[] = [];
   const params: Param[] = [];
@@ -59,8 +86,9 @@ export async function updateSpace(spaceId: number, input: UpdateSpaceInput) {
 }
 
 /** Clients a staff member may link a space or item to (id + display name only). */
-export const clientOptions = () =>
-  query<{ id: number; name: string }>(`SELECT id, COALESCE(trade_name, legal_name) AS name FROM clients ORDER BY name`);
+/** Clients the user may link: everyone's for admins, otherwise the clients they're assigned to. */
+export const clientOptions = (scope: { sql: string; params: number[] }) =>
+  query<{ id: number; name: string }>(`SELECT id, COALESCE(trade_name, legal_name) AS name FROM clients WHERE ${scope.sql} ORDER BY name`, scope.params);
 
 // ── Statuses ──
 export const listStatuses = (spaceId: number, db?: PoolConnection) =>

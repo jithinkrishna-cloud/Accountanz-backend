@@ -9,10 +9,14 @@ const q = (res: Response) => (res.locals.query ?? {}) as Record<string, unknown>
 export const list = async (req: Request, res: Response) =>
   void res.json({ items: await service.listSpaces(req.user!, { q: q(res).q as string | undefined, client_id: q(res).client_id as number | undefined }) });
 export const keyAvailable = async (_req: Request, res: Response) => void res.json(await service.isKeyAvailable(q(res).key as string));
-export const clientOptions = async (_req: Request, res: Response) => void res.json({ items: await service.clientOptions() });
+export const clientOptions = async (req: Request, res: Response) => void res.json({ items: await service.clientOptions(req.user!) });
 export const create = async (req: Request, res: Response) => void res.status(201).json(await service.createSpace(req.user!, req.body));
 export const get = async (req: Request, res: Response) => void res.json(await service.getSpace(req.user!, spaceOf(res)));
 export const update = async (req: Request, res: Response) => void res.json(await service.updateSpace(req.user!, spaceOf(res), req.body));
+export async function remove(req: Request, res: Response) {
+  await service.deleteSpace(req.user!, spaceOf(res), (req.body as { confirm_key: string }).confirm_key);
+  res.status(204).end();
+}
 
 export const statuses = async (_req: Request, res: Response) => void res.json({ items: await service.listStatuses(spaceOf(res)) });
 export const createStatus = async (req: Request, res: Response) => void res.status(201).json({ items: await service.createStatus(spaceOf(res), req.body) });

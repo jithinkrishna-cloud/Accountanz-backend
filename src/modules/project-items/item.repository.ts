@@ -2,7 +2,7 @@ import type { PoolConnection } from "mysql2/promise";
 import { execute, query, queryOne, type Param } from "../../database/connection.js";
 import type { Paged } from "../../utils/pagination.js";
 import type { StatusCategory } from "../projects/project.types.js";
-import type { AttachmentRow, ItemDetail, ItemRow } from "./item.types.js";
+import type { AttachmentRow, ItemDetail, ItemRow, WorklogRow } from "./item.types.js";
 import type { ListItemsQuery } from "./item.validation.js";
 
 type RawItem = Omit<ItemDetail, "labels"> & { labels: string | null };
@@ -13,7 +13,9 @@ const SELECT = `
          i.assignee_id, au.full_name AS assignee_name, i.reporter_id, ru.full_name AS reporter_name,
          i.parent_id, p.number AS parent_number, p.title AS parent_title,
          i.sprint_id, sp.name AS sprint_name, i.client_id, COALESCE(c.trade_name, c.legal_name) AS client_name,
-         i.story_points, i.start_date, i.due_date, i.\`rank\`, i.resolved_at, i.created_at, i.updated_at,
+         i.story_points, i.original_estimate_minutes,
+         (SELECT CAST(COALESCE(SUM(w.minutes), 0) AS UNSIGNED) FROM project_item_worklogs w WHERE w.item_id = i.id) AS time_spent_minutes,
+         i.start_date, i.due_date, i.\`rank\`, i.resolved_at, i.created_at, i.updated_at,
          (SELECT GROUP_CONCAT(l.label ORDER BY l.label SEPARATOR ',') FROM project_item_labels l WHERE l.item_id = i.id) AS labels,
          (SELECT COUNT(*) FROM project_items sub WHERE sub.parent_id = i.id) AS subtask_count
     FROM project_items i
@@ -192,6 +194,23 @@ export const listActivity = (itemId: number) =>
        FROM project_item_activity a LEFT JOIN users u ON u.id = a.actor_id WHERE a.item_id = ? ORDER BY a.created_at DESC, a.id DESC LIMIT 200`,
     [itemId],
   );
+
+// ── Logged work ──
+export const listWorklogs = (itemId: number) =>
+  query<WorklogRow>(
+    `SELECT w.id, w.user_id, u.full_name AS user_name, w.minutes, w.work_date, w.note, w.created_at
+       FROM project_item_worklogs w LEFT JOIN users u ON u.id = w.user_id WHERE w.item_id = ? ORDER BY w.work_date DESC, w.id DESC`,
+    [itemId],
+  );
+
+export const findWorklog = (itemId: number, id: number) =>
+  queryOne<{ id: number; user_id: number | null; minutes: number }>(`SELECT id, user_id, minutes FROM project_item_worklogs WHERE item_id = ? AND id = ?`, [itemId, id]);
+
+export async function insertWorklog(itemId: number, userId: number, w: { minutes: number; work_date: string; note: string | null }, conn: PoolConnection) {
+  return (await execute(`INSERT INTO project_item_worklogs (item_id, user_id, minutes, work_date, note) VALUES (?, ?, ?, ?, ?)`, [itemId, userId, w.minutes, w.work_date, w.note], conn)).insertId;
+}
+
+export const deleteWorklog = (id: number, conn: PoolConnection) => execute(`DELETE FROM project_item_worklogs WHERE id = ?`, [id], conn);
 
 // ── Comments ──
 export const listComments = (itemId: number) =>

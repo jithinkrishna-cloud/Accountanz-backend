@@ -39,6 +39,8 @@ export const updateItemSchema = z
     sprint_id: nullableId,
     client_id: nullableId,
     story_points: z.coerce.number().min(0).max(999).nullable(),
+    /** Minutes; null clears the estimate. */
+    original_estimate_minutes: z.coerce.number().int().min(1, "Enter an estimate, e.g. 2h or 1d 4h").max(10_000_000).nullable(),
     start_date: date,
     due_date: date,
     labels: z.array(label).max(20),
@@ -75,6 +77,14 @@ export const listItemsQuery = z.object({
 export const commentSchema = z.object({ body: z.string().trim().min(1, "Write a comment").max(10000) });
 
 export type CreateItemInput = z.infer<typeof createItemSchema>;
+/** Logging work: minutes spent (at most 24h in one entry), the day it was done, an optional note. */
+export const worklogSchema = z.object({
+  minutes: z.coerce.number().int().min(1, "Enter the time spent, e.g. 1h 30m").max(24 * 60, "Log at most 24h in one entry"),
+  work_date: z.iso.date("Pick the day"),
+  note: z.string().trim().max(500).nullable().optional(),
+});
+
 export type UpdateItemInput = z.infer<typeof updateItemSchema>;
+export type WorklogInput = z.infer<typeof worklogSchema>;
 export type MoveItemInput = z.infer<typeof moveItemSchema>;
 export type ListItemsQuery = z.infer<typeof listItemsQuery>;

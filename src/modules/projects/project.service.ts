@@ -1,6 +1,9 @@
 import { withTransaction } from "../../database/connection.js";
 import type { AuthUser } from "../../types/auth.types.js";
 import { AppError } from "../../utils/app-error.js";
+import { clientScope, requireLinkableClient } from "../access/client-access.js";
+import { deleteFile } from "../../utils/file-storage.js";
+import { logger } from "../../utils/logger.js";
 import { recordAudit } from "../audit/audit.service.js";
 import { requireSpaceAdmin } from "./project-access.js";
 import * as repo from "./project.repository.js";
@@ -12,11 +15,12 @@ export const listSpaces = (user: AuthUser, f: { q?: string; client_id?: number }
 
 export const isKeyAvailable = async (key: string) => ({ key, available: !(await repo.keyTaken(key)) });
 
-export const clientOptions = () => repo.clientOptions();
+export const clientOptions = (user: AuthUser) => repo.clientOptions(clientScope(user, "id"));
 
 export async function createSpace(actor: AuthUser, input: CreateSpaceInput) {
   if (await repo.keyTaken(input.space_key)) throw new AppError("VALIDATION_ERROR", "Please check the highlighted fields", { fieldErrors: { space_key: ["This key is already used by another space"] } });
   if (input.client_id && !(await repo.clientExists(input.client_id))) throw AppError.notFound("Client");
+  await requireLinkableClient(actor, input.client_id);
   const id = await withTransaction(async (conn) => {
     const spaceId = await repo.insertSpace(input, actor.id, conn);
     await recordAudit(actor, { action: "Workspace space created", entityType: "ProjectSpace", entityId: spaceId, clientId: input.client_id ?? null, details: `${input.space_key} · ${input.name}` }, conn);
@@ -33,8 +37,38 @@ export async function getSpace(user: AuthUser, space: SpaceContext) {
 export async function updateSpace(actor: AuthUser, space: SpaceContext, input: UpdateSpaceInput) {
   requireSpaceAdmin(space);
   if (input.client_id && !(await repo.clientExists(input.client_id))) throw AppError.notFound("Client");
+  if (input.client_id !== undefined && input.client_id !== space.client_id) await requireLinkableClient(actor, input.client_id);
   await repo.updateSpace(space.id, input);
   return getSpace(actor, space);
+}
+
+/**
+ * Permanently deletes a space: every work item, sprint, comment, history entry and attachment file. Space
+ * Administrators only (super admins count as Administrator in every space). The caller must type the space key.
+ */
+export async function deleteSpace(actor: AuthUser, space: SpaceContext, confirmKey: string) {
+  requireSpaceAdmin(space);
+  if (confirmKey.trim().toUpperCase() !== space.key) {
+    throw new AppError("VALIDATION_ERROR", "Type the space key to confirm", { fieldErrors: { confirm_key: [`Type ${space.key} to confirm`] } });
+  }
+  const fileKeys = await withTransaction(async (conn) => {
+    const info = await repo.spaceDeletionInfo(space.id, conn);
+    await repo.deleteSpaceRows(space.id, conn);
+    await recordAudit(
+      actor,
+      {
+        action: "Workspace space deleted",
+        entityType: "ProjectSpace",
+        entityId: space.id,
+        clientId: space.client_id,
+        details: `${space.key} · ${space.name}: ${info.items} work items, ${info.sprints} sprints, ${info.comments} comments, ${info.fileKeys.length} attachments`,
+      },
+      conn,
+    );
+    return info.fileKeys;
+  });
+  // Files go after the rows are gone, so a storage hiccup can't leave rows pointing at missing files.
+  for (const key of fileKeys) await deleteFile(key).catch((err) => logger.warn({ err, key }, "Could not delete a Workspace attachment file"));
 }
 
 // ── Statuses ──

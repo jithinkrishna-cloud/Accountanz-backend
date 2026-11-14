@@ -2,11 +2,13 @@ import type { PoolConnection } from "mysql2/promise";
 import { withTransaction } from "../../database/connection.js";
 import type { AuthUser } from "../../types/auth.types.js";
 import { AppError } from "../../utils/app-error.js";
+import { formatMinutes } from "../../utils/duration.js";
 import { deleteFile, openFile, saveFile } from "../../utils/file-storage.js";
+import { requireLinkableClient } from "../access/client-access.js";
 import type { SpaceContext } from "../projects/project.types.js";
 import * as repo from "./item.repository.js";
 import { MAX_ATTACHMENTS, type ItemDetail } from "./item.types.js";
-import type { CreateItemInput, ListItemsQuery, MoveItemInput, UpdateItemInput } from "./item.validation.js";
+import type { CreateItemInput, ListItemsQuery, MoveItemInput, UpdateItemInput, WorklogInput } from "./item.validation.js";
 
 const RANK_STEP = 1024;
 const fieldError = (field: string, message: string) => new AppError("VALIDATION_ERROR", message, { fieldErrors: { [field]: [message] } });
@@ -70,6 +72,7 @@ export async function createItem(actor: AuthUser, space: SpaceContext, input: Cr
     if (!status) throw fieldError("status_id", "Status not found in this space");
     await checkMember(space, input.assignee_id, "assignee_id", conn);
     await checkClient(input.client_id, conn);
+    if (input.client_id && input.client_id !== space.client_id) await requireLinkableClient(actor, input.client_id);
     const parent = await resolveParent(space, input.type, input.parent_number, null, conn);
     let sprintId = input.sprint_id ?? null;
     let clientId = input.client_id === undefined ? space.client_id : input.client_id;
@@ -121,6 +124,9 @@ export async function updateItem(actor: AuthUser, space: SpaceContext, number: n
       log.push([field, oldText, newText]);
     };
 
+    if (input.original_estimate_minutes !== undefined && (input.original_estimate_minutes ?? null) !== (item.original_estimate_minutes ?? null)) {
+      change("original estimate", "original_estimate_minutes", input.original_estimate_minutes ?? null, formatMinutes(item.original_estimate_minutes), formatMinutes(input.original_estimate_minutes));
+    }
     for (const f of ["title", "description", "priority", "story_points", "start_date", "due_date"] as const) {
       if (input[f] === undefined || display(input[f]) === display(item[f])) continue;
       change(f, f, input[f] ?? null, f === "description" ? null : display(item[f]), f === "description" ? null : display(input[f]));
@@ -138,6 +144,7 @@ export async function updateItem(actor: AuthUser, space: SpaceContext, number: n
       change("reporter", "reporter_id", input.reporter_id, item.reporter_name, await checkMember(space, input.reporter_id, "reporter_id", conn));
     }
     if (input.client_id !== undefined && input.client_id !== item.client_id) {
+      if (input.client_id !== space.client_id) await requireLinkableClient(actor, input.client_id);
       change("client", "client_id", input.client_id, item.client_name, await checkClient(input.client_id, conn));
     }
 
@@ -214,6 +221,35 @@ export async function deleteItem(actor: AuthUser, space: SpaceContext, number: n
 // ── Activity & comments ──
 export async function getActivity(space: SpaceContext, number: number) {
   return repo.listActivity((await requireItem(space, number)).id);
+}
+
+// ── Logged work ──
+export async function getWorklogs(space: SpaceContext, number: number) {
+  return repo.listWorklogs((await requireItem(space, number)).id);
+}
+
+/** Any member can log their own time; it shows in the item's history. */
+export async function addWorklog(actor: AuthUser, space: SpaceContext, number: number, input: WorklogInput) {
+  if (input.work_date > new Date().toISOString().slice(0, 10)) throw fieldError("work_date", "You can't log time in the future");
+  const item = await requireItem(space, number);
+  await withTransaction(async (conn) => {
+    await repo.insertWorklog(item.id, actor.id, { minutes: input.minutes, work_date: input.work_date, note: input.note ?? null }, conn);
+    await repo.logActivity(item.id, actor.id, "logged work", "time spent", null, `${formatMinutes(input.minutes)} on ${input.work_date}${input.note ? ` · ${input.note}` : ""}`, conn);
+  });
+  return repo.listWorklogs(item.id);
+}
+
+/** The person who logged it, or a space Administrator, can remove an entry. */
+export async function deleteWorklog(actor: AuthUser, space: SpaceContext, number: number, id: number) {
+  const item = await requireItem(space, number);
+  const w = await repo.findWorklog(item.id, id);
+  if (!w) throw AppError.notFound("Work log");
+  if (w.user_id !== actor.id && space.role !== "admin") throw AppError.forbidden("Only the person who logged it or a space Administrator can remove this");
+  await withTransaction(async (conn) => {
+    await repo.deleteWorklog(id, conn);
+    await repo.logActivity(item.id, actor.id, "removed work log", "time spent", formatMinutes(w.minutes), null, conn);
+  });
+  return repo.listWorklogs(item.id);
 }
 
 export async function getComments(space: SpaceContext, number: number) {

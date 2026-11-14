@@ -29,6 +29,17 @@ export async function activeTeamRoles(userId: number, clientId: number, db: Pool
   return rows.map((r) => r.team_role);
 }
 
+/**
+ * Linking something (e.g. a Workspace space or work item) to a client: the client must exist, and staff who aren't
+ * admins may only link clients they're assigned to, the same clients they can see everywhere else.
+ */
+export async function requireLinkableClient(user: AuthUser, clientId: number | null | undefined, field = "client_id") {
+  if (!clientId) return;
+  if (!(await canAccessClient(user, clientId))) {
+    throw new AppError("VALIDATION_ERROR", "You can only link clients you work on", { fieldErrors: { [field]: ["Choose one of your clients"] } });
+  }
+}
+
 export async function canAccessClient(user: AuthUser, clientId: number) {
   return isAdmin(user) || (await activeTeamRoles(user.id, clientId)).length > 0;
 }

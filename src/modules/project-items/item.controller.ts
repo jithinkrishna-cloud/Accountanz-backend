@@ -7,6 +7,10 @@ import type { ListItemsQuery } from "./item.validation.js";
 
 const p = (res: Response) => res.locals.params as { number: number; id?: number };
 
+export const worklogs = async (_req: Request, res: Response) => void res.json({ items: await service.getWorklogs(spaceOf(res), p(res).number) });
+export const addWorklog = async (req: Request, res: Response) => void res.status(201).json({ items: await service.addWorklog(req.user!, spaceOf(res), p(res).number, req.body) });
+export const deleteWorklog = async (req: Request, res: Response) => void res.json({ items: await service.deleteWorklog(req.user!, spaceOf(res), p(res).number, p(res).id!) });
+
 export const list = async (_req: Request, res: Response) => void res.json(await service.listItems(spaceOf(res), res.locals.query as ListItemsQuery));
 export const get = async (_req: Request, res: Response) => void res.json(await service.getItem(spaceOf(res), p(res).number));
 export const create = async (req: Request, res: Response) => void res.status(201).json(await service.createItem(req.user!, spaceOf(res), req.body));

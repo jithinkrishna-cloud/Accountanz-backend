@@ -38,6 +38,8 @@ projectRoutes.use("/:key", withSpace, space);
 
 space.get("/", c.get);
 space.patch("/", validate({ body: updateSpaceSchema }), c.update);
+/** Permanently deletes the space; the body must repeat the space key. */
+space.delete("/", validate({ body: z.object({ confirm_key: z.string().trim().min(1, "Type the space key to confirm").max(10) }) }), c.remove);
 space.get("/summary", validate({ query: z.object({ assignee_id: z.coerce.number().int().positive().optional() }) }), c.summary);
 
 space.get("/statuses", c.statuses);
