@@ -38,6 +38,10 @@ export async function logWork(req: Request, res: Response) {
   res.status(201).json(await service.logWork(req.user!, idOf(res), req.body));
 }
 
+export async function start(req: Request, res: Response) {
+  res.json(await service.startTask(req.user!, idOf(res)));
+}
+
 export async function submit(req: Request, res: Response) {
   res.json(await service.submitTask(req.user!, idOf(res)));
 }

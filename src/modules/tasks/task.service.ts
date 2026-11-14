@@ -220,6 +220,20 @@ export async function updateChecklist(actor: AuthUser, id: number, done: boolean
   return getTaskDetail(actor, id);
 }
 
+/** The assignee starts a to-do task, or picks a returned one back up (e.g. by dragging it on the Work Queue). */
+export async function startTask(actor: AuthUser, id: number) {
+  await withTransaction(async (conn) => {
+    const task = await repo.lockTask(id, conn);
+    if (!task) throw AppError.notFound("Task");
+    if (task.assignee_id !== actor.id) throw AppError.forbidden("Only the assignee can start this task");
+    if (task.status === "in_progress") return;
+    if (task.status !== "todo" && task.status !== "returned") throw AppError.conflict(`This task is ${task.status.replace("_", " ")} and can't be moved back to in progress`);
+    await repo.setChecklistAndStatus(id, task.checklist, "in_progress", conn);
+    await recordAudit(actor, { action: task.status === "returned" ? "Task resumed" : "Task started", entityType: "Task", entityId: id, clientId: task.client_id, details: `${task.title} (${task.period})` }, conn);
+  });
+  return getTaskDetail(actor, id);
+}
+
 /** Time logged here feeds the accountant payout run. The assignee and the reviewer can log time. */
 export async function logWork(actor: AuthUser, id: number, input: WorkLogInput) {
   const task = await repo.findTask(id);

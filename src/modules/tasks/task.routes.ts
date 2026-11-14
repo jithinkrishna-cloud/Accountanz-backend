@@ -31,4 +31,5 @@ staffTaskRoutes.get("/:id", validate({ params: idParam }), controller.get);
 staffTaskRoutes.patch("/:id", validate({ params: idParam, body: updateTaskSchema }), controller.update);
 staffTaskRoutes.put("/:id/checklist", validate({ params: idParam, body: checklistProgressSchema }), controller.checklist);
 staffTaskRoutes.post("/:id/work-logs", validate({ params: idParam, body: workLogSchema }), controller.logWork);
+staffTaskRoutes.post("/:id/start", validate({ params: idParam }), controller.start);
 staffTaskRoutes.post("/:id/submit", validate({ params: idParam }), controller.submit);
