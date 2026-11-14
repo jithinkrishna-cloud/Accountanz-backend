@@ -4,7 +4,7 @@ import type { AuthUser } from "../../types/auth.types.js";
 import { AppError } from "../../utils/app-error.js";
 import { clientScope, isAdmin, requireClientAccess } from "../access/client-access.js";
 import { recordAudit } from "../audit/audit.service.js";
-import { notifyMeetingCancelled, notifyMeetingRequestDeclined, notifyMeetingScheduled, notifyTeamMessage } from "../notifications/notification.service.js";
+import { notifyMeetingCancelled, notifyMeetingRequestDeclined, notifyMeetingScheduled, notifyMentioned, notifyTeamMessage } from "../notifications/notification.service.js";
 import * as repo from "./communication.repository.js";
 import type { MeetingListQuery, MeetingRequestListQuery, NewMeetingInput, NewThreadInput, ThreadListQuery } from "./communication.validation.js";
 
@@ -12,7 +12,7 @@ import type { MeetingListQuery, MeetingRequestListQuery, NewMeetingInput, NewThr
  * Staff side of client communication. Client threads are the same conversations the client sees in the portal;
  * internal threads are never returned by the client portal (it filters visibility = 'client').
  */
-export const listThreads = (actor: AuthUser, q: ThreadListQuery) => repo.listThreads(q, clientScope(actor, "t.client_id"));
+export const listThreads = (actor: AuthUser, q: ThreadListQuery) => repo.listThreads(q, clientScope(actor, "t.client_id"), actor.id);
 
 async function requireThread(actor: AuthUser, id: number) {
   const thread = await repo.findThread(id);
@@ -21,34 +21,60 @@ async function requireThread(actor: AuthUser, id: number) {
   return thread;
 }
 
+/** Messages with their @mentions as an array (never null). */
+export const messagesWithMentions = <M extends { mentions: { user_id: number; full_name: string }[] | null }>(rows: M[]) =>
+  rows.map((m) => ({ ...m, mentions: m.mentions ?? [] }));
+
 export async function getThread(actor: AuthUser, id: number) {
   const thread = await requireThread(actor, id);
-  return { ...thread, items: await repo.threadMessages(id) };
+  return { ...thread, items: messagesWithMentions(await repo.threadMessages(id)) };
+}
+
+// ── @mentions ──
+/** Who can be mentioned: the client's team today, plus the client's portal users on client-visible threads. */
+export const mentionableFor = (clientId: number, visibility: "client" | "internal") => repo.mentionable(clientId, visibility === "client");
+
+export async function listMentionable(actor: AuthUser, clientId: number, visibility: "client" | "internal") {
+  await requireClientAccess(actor, clientId);
+  return (await mentionableFor(clientId, visibility)).filter((p) => p.user_id !== actor.id).map(({ email: _email, ...p }) => p);
+}
+
+/** Keeps only people who may be mentioned here (and not the author). Unknown ids are an error, not silently dropped. */
+export async function resolveMentions(clientId: number, visibility: "client" | "internal", ids: number[], authorId: number) {
+  if (!ids.length) return [];
+  const allowed = await mentionableFor(clientId, visibility);
+  const unique = [...new Set(ids)].filter((id) => id !== authorId);
+  const picked = unique.map((id) => allowed.find((p) => p.user_id === id));
+  if (picked.some((p) => !p)) throw new AppError("VALIDATION_ERROR", "You can only mention people on this client's conversation", { fieldErrors: { mentions: ["Mention someone in this conversation"] } });
+  return picked as repo.Mentionable[];
 }
 
 export async function startThread(actor: AuthUser, input: NewThreadInput) {
   await requireClientAccess(actor, input.client_id);
+  const mentioned = await resolveMentions(input.client_id, input.visibility, input.mentions, actor.id);
   const { threadId, messageId } = await withTransaction(async (conn) => {
     const tid = await repo.insertThread(input.client_id, input.visibility, input.subject, actor.id, conn);
-    return { threadId: tid, messageId: await repo.insertMessage(tid, actor.id, input.body, conn) };
+    const mid = await repo.insertMessage(tid, actor.id, input.body, conn);
+    await repo.saveMentions(mid, mentioned.map((p) => p.user_id), conn);
+    return { threadId: tid, messageId: mid };
   });
-  void notifyTeamMessage({ clientId: input.client_id, threadId, messageId, authorId: actor.id, author: actor.fullName, subject: input.subject, body: input.body, visibility: input.visibility });
+  const message = { clientId: input.client_id, threadId, messageId, authorId: actor.id, author: actor.fullName, subject: input.subject, body: input.body, visibility: input.visibility };
+  void notifyMentioned({ ...message, mentioned });
+  void notifyTeamMessage({ ...message, skipEmails: mentioned.map((p) => p.email) });
   return getThread(actor, threadId);
 }
 
-export async function reply(actor: AuthUser, threadId: number, body: string) {
+export async function reply(actor: AuthUser, threadId: number, body: string, mentionIds: number[] = []) {
   const thread = await requireThread(actor, threadId);
-  const messageId = await withTransaction((conn) => repo.insertMessage(threadId, actor.id, body, conn));
-  void notifyTeamMessage({
-    clientId: thread.client_id,
-    threadId,
-    messageId,
-    authorId: actor.id,
-    author: actor.fullName,
-    subject: thread.subject ?? "Conversation",
-    body,
-    visibility: thread.visibility,
+  const mentioned = await resolveMentions(thread.client_id, thread.visibility, mentionIds, actor.id);
+  const messageId = await withTransaction(async (conn) => {
+    const mid = await repo.insertMessage(threadId, actor.id, body, conn);
+    await repo.saveMentions(mid, mentioned.map((p) => p.user_id), conn);
+    return mid;
   });
+  const message = { clientId: thread.client_id, threadId, messageId, authorId: actor.id, author: actor.fullName, subject: thread.subject ?? "Conversation", body, visibility: thread.visibility };
+  void notifyMentioned({ ...message, mentioned });
+  void notifyTeamMessage({ ...message, skipEmails: mentioned.map((p) => p.email) });
   return getThread(actor, threadId);
 }
 

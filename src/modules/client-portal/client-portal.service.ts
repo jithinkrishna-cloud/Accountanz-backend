@@ -1,12 +1,13 @@
 import { env } from "../../config/env.js";
-import { pool, withTransaction } from "../../database/connection.js";
+import { withTransaction } from "../../database/connection.js";
 import type { AuthUser } from "../../types/auth.types.js";
 import { AppError } from "../../utils/app-error.js";
 import { encryptSecret } from "../../utils/crypto.js";
 import { deleteFile, openFile, saveFile } from "../../utils/file-storage.js";
 import { recordAudit } from "../audit/audit.service.js";
 import * as meetingRepo from "../communication/communication.repository.js";
-import { notifyApprovalDecided, notifyClientMessage, notifyDocumentReceived, notifyMeetingRequested } from "../notifications/notification.service.js";
+import { mentionableFor, messagesWithMentions, resolveMentions } from "../communication/communication.service.js";
+import { notifyApprovalDecided, notifyClientMessage, notifyDocumentReceived, notifyMeetingRequested, notifyMentioned } from "../notifications/notification.service.js";
 import { setClientSoftware } from "../integrations/integration.repository.js";
 import { journlGateway } from "../integrations/journl.gateway.js";
 import { insertEngagement, updateEngagement as updateEngagementRow } from "../engagements/engagement.repository.js";
@@ -202,24 +203,39 @@ export async function decideApproval(actor: AuthUser, ctx: ClientContext, id: nu
 export async function getThread(ctx: ClientContext, id: number) {
   const thread = await repo.findThread(ctx.clientId, id);
   if (!thread) throw AppError.notFound("Conversation");
-  return { ...thread, messages: (await repo.threadMessages(id)).map((m) => ({ ...m, from_client: Boolean(m.from_client) })) };
+  return { ...thread, messages: messagesWithMentions(await repo.threadMessages(id)).map((m) => ({ ...m, from_client: Boolean(m.from_client) })) };
+}
+
+/** People the client can @mention: their accounting team and their own colleagues (not themselves). */
+export async function getMentionable(actor: AuthUser, ctx: ClientContext) {
+  return (await mentionableFor(ctx.clientId, "client")).filter((p) => p.user_id !== actor.id).map(({ email: _email, ...p }) => p);
 }
 
 export async function startThread(actor: AuthUser, ctx: ClientContext, input: NewThreadInput) {
-  const id = await withTransaction(async (conn) => {
+  const mentioned = await resolveMentions(ctx.clientId, "client", input.mentions, actor.id);
+  const { id, messageId } = await withTransaction(async (conn) => {
     const threadId = await repo.insertThread(ctx.clientId, actor.id, input.subject, conn);
-    await repo.insertMessage(threadId, actor.id, input.body, conn);
-    return threadId;
+    const mid = await repo.insertMessage(threadId, actor.id, input.body, conn);
+    await meetingRepo.saveMentions(mid, mentioned.map((p) => p.user_id), conn);
+    return { id: threadId, messageId: mid };
   });
-  void notifyClientMessage(ctx.clientId, { clientName: ctx.clientName, subject: input.subject, body: input.body, author: actor.fullName, threadId: id });
+  void notifyMentioned({ clientId: ctx.clientId, threadId: id, messageId, authorId: actor.id, author: actor.fullName, subject: input.subject, body: input.body, mentioned });
+  void notifyClientMessage(ctx.clientId, { clientName: ctx.clientName, subject: input.subject, body: input.body, author: actor.fullName, threadId: id, skipEmails: mentioned.map((p) => p.email) });
   return getThread(ctx, id);
 }
 
-export async function reply(actor: AuthUser, ctx: ClientContext, threadId: number, body: string) {
+export async function reply(actor: AuthUser, ctx: ClientContext, threadId: number, body: string, mentionIds: number[] = []) {
   const thread = await repo.findThread(ctx.clientId, threadId);
   if (!thread) throw AppError.notFound("Conversation");
-  const messageId = await repo.insertMessage(threadId, actor.id, body, pool);
-  void notifyClientMessage(ctx.clientId, { clientName: ctx.clientName, subject: thread.subject ?? "Message", body, author: actor.fullName, threadId, messageId });
+  const mentioned = await resolveMentions(ctx.clientId, "client", mentionIds, actor.id);
+  const messageId = await withTransaction(async (conn) => {
+    const mid = await repo.insertMessage(threadId, actor.id, body, conn);
+    await meetingRepo.saveMentions(mid, mentioned.map((p) => p.user_id), conn);
+    return mid;
+  });
+  const subject = thread.subject ?? "Message";
+  void notifyMentioned({ clientId: ctx.clientId, threadId, messageId, authorId: actor.id, author: actor.fullName, subject, body, mentioned });
+  void notifyClientMessage(ctx.clientId, { clientName: ctx.clientName, subject, body, author: actor.fullName, threadId, messageId, skipEmails: mentioned.map((p) => p.email) });
   return getThread(ctx, threadId);
 }
 

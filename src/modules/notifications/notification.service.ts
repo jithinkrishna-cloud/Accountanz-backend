@@ -3,7 +3,7 @@
  * They never throw: callers fire them after their transaction commits (`void notifyX(...)`), so a mail
  * problem can't undo or slow down the action. Idempotency keys stop duplicates on retries.
  */
-import { approvalDecidedEmail, approvalRequestedEmail, clientMessageEmail, companyRegisteredEmail, documentRequestedEmail, meetingCancelledEmail, meetingRequestDeclinedEmail, meetingRequestedEmail, meetingScheduledEmail, reportPublishedEmail, teamMessageEmail, documentReceivedEmail, invoiceIssuedEmail, taskAssignedEmail, taskReviewedEmail, taskSubmittedEmail } from "../../emails/templates.js";
+import { approvalDecidedEmail, approvalRequestedEmail, clientMessageEmail, companyRegisteredEmail, documentRequestedEmail, meetingCancelledEmail, meetingRequestDeclinedEmail, meetingRequestedEmail, meetingScheduledEmail, mentionedEmail, reportPublishedEmail, teamMessageEmail, documentReceivedEmail, invoiceIssuedEmail, taskAssignedEmail, taskReviewedEmail, taskSubmittedEmail } from "../../emails/templates.js";
 import { logger } from "../../utils/logger.js";
 import { sendMail } from "../../utils/mailer.js";
 import { findMeetingRequest } from "../communication/communication.repository.js";
@@ -103,10 +103,11 @@ export const notifyApprovalDecided = (requestedBy: number | null, d: { approvalI
   });
 
 /** Client wrote a message: tell the client's accounting team. */
-export const notifyClientMessage = (clientId: number, d: { clientName: string; subject: string; body: string; author: string; threadId: number; messageId?: number }) =>
+export const notifyClientMessage = (clientId: number, d: { clientName: string; subject: string; body: string; author: string; threadId: number; messageId?: number; skipEmails?: string[] }) =>
   safely("client-message", async () => {
     const team = await repo.listClientTeamContacts(clientId);
     for (const m of team) {
+      if (d.skipEmails?.includes(m.email)) continue;
       const content = clientMessageEmail({ recipientName: m.full_name, clientName: d.clientName, author: d.author, subject: d.subject, body: d.body });
       await sendMail({ to: m.email, ...content, idempotencyKey: `client-message/${d.threadId}/${d.messageId ?? "first"}/${m.email}` });
     }
@@ -204,14 +205,26 @@ export const notifyMeetingCancelled = (meetingId: number, d: { clientId: number;
     }
   });
 
+/** Someone was @mentioned: each person mentioned (never the author) gets a "mentioned you" email. */
+export const notifyMentioned = (d: { clientId: number; threadId: number; messageId: number; authorId: number; author: string; subject: string; body: string; mentioned: { user_id: number; full_name: string; email: string; kind: "team" | "client" }[] }) =>
+  safely("mentioned", async () => {
+    if (!d.mentioned.length) return;
+    const clientName = await repo.findClientName(d.clientId);
+    for (const p of d.mentioned) {
+      if (p.user_id === d.authorId) continue;
+      const content = mentionedEmail({ recipientName: p.full_name, clientName, author: d.author, subject: d.subject, body: d.body, forClient: p.kind === "client" });
+      await sendMail({ to: p.email, ...content, idempotencyKey: `mentioned/${d.messageId}/${p.email}` });
+    }
+  });
+
 /** Staff wrote in a thread: client threads reach the client's users, internal threads reach the staff involved. */
-export const notifyTeamMessage = (d: { clientId: number; threadId: number; messageId: number; authorId: number; author: string; subject: string; body: string; visibility: "client" | "internal" }) =>
+export const notifyTeamMessage = (d: { clientId: number; threadId: number; messageId: number; authorId: number; author: string; subject: string; body: string; visibility: "client" | "internal"; skipEmails?: string[] }) =>
   safely("team-message", async () => {
     const clientName = await repo.findClientName(d.clientId);
     const forClient = d.visibility === "client";
     const recipients = forClient ? await repo.listClientContacts(d.clientId) : await repo.listThreadStaff(d.clientId, d.threadId);
     for (const r of recipients) {
-      if (r.id === d.authorId) continue;
+      if (r.id === d.authorId || d.skipEmails?.includes(r.email)) continue;
       const content = teamMessageEmail({ recipientName: r.full_name, clientName, author: d.author, subject: d.subject, body: d.body, forClient });
       await sendMail({ to: r.email, ...content, idempotencyKey: `team-message/${d.messageId}/${r.email}` });
     }

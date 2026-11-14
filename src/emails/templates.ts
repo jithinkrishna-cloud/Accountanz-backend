@@ -343,6 +343,20 @@ export function meetingRequestDeclinedEmail(d: { recipientName: string; topic: s
   };
 }
 
+/** Someone @mentioned the recipient in a conversation. */
+export function mentionedEmail(d: { recipientName: string; clientName: string; author: string; subject: string; body: string; forClient: boolean }): EmailContent {
+  const url = appUrl(d.forClient ? "/app/messages" : "/team/messages");
+  return {
+    subject: `${d.author} mentioned you: ${d.subject}`,
+    html: layout({
+      title: `${d.author} mentioned you`,
+      preheader: `${d.author}: ${d.body.slice(0, 90)}`,
+      body: paragraph(`Hi ${d.recipientName},`) + paragraph(`${d.author} mentioned you in "${d.subject}"${d.forClient ? "" : ` (${d.clientName})`}:`) + quote(d.body) + button("Open conversation", url),
+    }),
+    text: plainText(`Hi ${d.recipientName},`, `${d.author} mentioned you in "${d.subject}":`, d.body, `Open: ${url}`),
+  };
+}
+
 /** A staff member wrote in a thread: to the client (client threads) or to colleagues (internal threads). */
 export function teamMessageEmail(d: { recipientName: string; clientName: string; author: string; subject: string; body: string; forClient: boolean }): EmailContent {
   const url = appUrl(d.forClient ? "/app/messages" : "/team/messages");

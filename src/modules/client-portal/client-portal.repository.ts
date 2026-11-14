@@ -5,6 +5,7 @@
 import type { PoolConnection } from "mysql2/promise";
 import { execute, pool, query, queryOne } from "../../database/connection.js";
 import { activeAssignmentSql } from "../access/client-access.js";
+import { MESSAGE_MENTIONS_SQL } from "../communication/communication.repository.js";
 
 type Db = PoolConnection | typeof pool;
 
@@ -50,8 +51,8 @@ export const branches = (clientId: number) =>
   query<{ id: number; name: string; gstin: string | null }>(`SELECT id, name, gstin FROM client_branches WHERE client_id = ? ORDER BY name`, [clientId]);
 
 export const team = (clientId: number) =>
-  query<{ full_name: string; email: string; team_role: string }>(
-    `SELECT u.full_name, u.email, a.team_role FROM assignments a JOIN users u ON u.id = a.user_id
+  query<{ user_id: number; full_name: string; email: string; team_role: string }>(
+    `SELECT u.id AS user_id, u.full_name, u.email, a.team_role FROM assignments a JOIN users u ON u.id = a.user_id
       WHERE a.client_id = ? AND ${activeAssignmentSql("a")} AND u.status = 'active'
       ORDER BY FIELD(a.team_role, 'cfo', 'finance_manager', 'reviewer', 'bookkeeper'), u.full_name`,
     [clientId],
@@ -167,8 +168,10 @@ export const fulfilRequest = (id: number, db: PoolConnection) => execute(`UPDATE
 
 // ── Tasks & reports ──
 export const visibleTasks = (clientId: number, period: string) =>
-  query<{ id: number; title: string; description: string | null; status: string; due_date: string | null; checklist: { text: string; done: boolean }[] }>(
-    `SELECT id, title, description, status, due_date, checklist FROM tasks WHERE client_id = ? AND period = ? AND client_visible = 1 ORDER BY due_date IS NULL, due_date, id`,
+  query<{ id: number; title: string; description: string | null; status: string; due_date: string | null; checklist: { text: string; done: boolean }[]; assignee_id: number | null; handled_by: string | null; reviewer_id: number | null; checked_by: string | null }>(
+    `SELECT t.id, t.title, t.description, t.status, t.due_date, t.checklist, t.assignee_id, a.full_name AS handled_by, t.reviewer_id, r.full_name AS checked_by
+       FROM tasks t LEFT JOIN users a ON a.id = t.assignee_id LEFT JOIN users r ON r.id = t.reviewer_id
+      WHERE t.client_id = ? AND t.period = ? AND t.client_visible = 1 ORDER BY t.due_date IS NULL, t.due_date, t.id`,
     [clientId, period],
   );
 
@@ -223,8 +226,8 @@ export const findThread = (clientId: number, id: number) =>
   queryOne<{ id: number; subject: string | null }>(`SELECT id, subject FROM message_threads WHERE id = ? AND client_id = ? AND visibility = 'client'`, [id, clientId]);
 
 export const threadMessages = (threadId: number) =>
-  query<{ id: number; body: string; created_at: string; author: string | null; author_id: number | null; from_client: 0 | 1 }>(
-    `SELECT m.id, m.body, m.created_at, u.full_name AS author, m.author_id, u.portal_role IN ('client_owner', 'client_member') AS from_client
+  query<{ id: number; body: string; created_at: string; author: string | null; author_id: number | null; from_client: 0 | 1; mentions: { user_id: number; full_name: string }[] | null }>(
+    `SELECT m.id, m.body, m.created_at, u.full_name AS author, m.author_id, u.portal_role IN ('client_owner', 'client_member') AS from_client, ${MESSAGE_MENTIONS_SQL}
        FROM messages m LEFT JOIN users u ON u.id = m.author_id WHERE m.thread_id = ? ORDER BY m.created_at, m.id`,
     [threadId],
   );

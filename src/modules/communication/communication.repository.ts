@@ -13,15 +13,19 @@ const THREAD_COLUMNS = `t.id, t.client_id, COALESCE(c.trade_name, c.legal_name) 
   (SELECT MAX(m.created_at) FROM messages m WHERE m.thread_id = t.id) AS last_at,
   ${LAST("m.body")} AS last_body, ${LAST("u.full_name")} AS last_author, ${LAST(CLIENT_AUTHOR)} AS last_from_client`;
 
-export async function listThreads(q: ThreadListQuery, scope: Scope): Promise<Paged<ThreadRow>> {
+/** `userId` marks (and, with q.mentioned, limits to) threads where that person has been @mentioned. */
+export async function listThreads(q: ThreadListQuery, scope: Scope, userId: number): Promise<Paged<ThreadRow>> {
   const where = [scope.sql];
   const params: Param[] = [...scope.params];
+  const mentionsMe = `(SELECT COUNT(*) FROM message_mentions mm JOIN messages mx ON mx.id = mm.message_id WHERE mx.thread_id = t.id AND mm.user_id = ?)`;
+  if (q.mentioned) (where.push(`${mentionsMe} > 0`), params.push(userId));
   if (q.client_id) (where.push("t.client_id = ?"), params.push(q.client_id));
   if (q.visibility) (where.push("t.visibility = ?"), params.push(q.visibility));
   if (q.q) (where.push("(t.subject LIKE ? OR c.legal_name LIKE ? OR c.trade_name LIKE ?)"), params.push(`%${q.q}%`, `%${q.q}%`, `%${q.q}%`));
   const whereSql = `WHERE ${where.join(" AND ")}`;
   const from = `FROM message_threads t JOIN clients c ON c.id = t.client_id`;
-  const items = await query<ThreadRow>(`SELECT ${THREAD_COLUMNS} ${from} ${whereSql} ORDER BY COALESCE(last_at, t.created_at) DESC LIMIT ? OFFSET ?`, [
+  const items = await query<ThreadRow>(`SELECT ${THREAD_COLUMNS}, ${mentionsMe} AS mentions_me ${from} ${whereSql} ORDER BY COALESCE(last_at, t.created_at) DESC LIMIT ? OFFSET ?`, [
+    userId,
     ...params,
     q.pageSize,
     offsetOf(q),
@@ -35,7 +39,7 @@ export const findThread = (id: number) =>
 
 export const threadMessages = (threadId: number) =>
   query<MessageRow>(
-    `SELECT m.id, m.body, m.created_at, u.full_name AS author, m.author_id, COALESCE(${CLIENT_AUTHOR}, 0) AS from_client
+    `SELECT m.id, m.body, m.created_at, u.full_name AS author, m.author_id, COALESCE(${CLIENT_AUTHOR}, 0) AS from_client, ${MESSAGE_MENTIONS_SQL}
        FROM messages m LEFT JOIN users u ON u.id = m.author_id WHERE m.thread_id = ? ORDER BY m.created_at, m.id`,
     [threadId],
   );
@@ -163,3 +167,35 @@ export async function closeMeetingRequest(
   );
   return r.affectedRows === 1;
 }
+
+// ── @mentions ──
+/** Someone who can be @mentioned in a client's conversations: today's team, plus (client threads) the client's portal users. */
+export interface Mentionable {
+  user_id: number;
+  full_name: string;
+  email: string;
+  kind: "team" | "client";
+  role: string;
+}
+
+export const mentionable = (clientId: number, includeClientUsers: boolean) =>
+  query<Mentionable>(
+    `SELECT u.id AS user_id, u.full_name, u.email, 'team' AS kind,
+            SUBSTRING_INDEX(GROUP_CONCAT(a.team_role ORDER BY FIELD(a.team_role, 'cfo', 'finance_manager', 'reviewer', 'bookkeeper')), ',', 1) AS role
+       FROM assignments a JOIN users u ON u.id = a.user_id
+      WHERE a.client_id = ? AND ${activeAssignmentSql("a")} AND u.status = 'active'
+      GROUP BY u.id, u.full_name, u.email
+     ${includeClientUsers ? `UNION ALL
+     SELECT u.id, u.full_name, u.email, 'client', cu.role FROM client_users cu JOIN users u ON u.id = cu.user_id
+      WHERE cu.client_id = ? AND u.status = 'active'` : ""}
+      ORDER BY full_name`,
+    includeClientUsers ? [clientId, clientId] : [clientId],
+  );
+
+export async function saveMentions(messageId: number, userIds: number[], conn: PoolConnection) {
+  for (const id of userIds) await execute(`INSERT IGNORE INTO message_mentions (message_id, user_id) VALUES (?, ?)`, [messageId, id], conn);
+}
+
+/** Select-list column: the people a message mentions, as JSON (alias m = messages). */
+export const MESSAGE_MENTIONS_SQL = `(SELECT JSON_ARRAYAGG(JSON_OBJECT('user_id', mm.user_id, 'full_name', mu.full_name))
+   FROM message_mentions mm JOIN users mu ON mu.id = mm.user_id WHERE mm.message_id = m.id) AS mentions`;

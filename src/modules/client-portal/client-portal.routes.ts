@@ -38,6 +38,7 @@ clientPortalRoutes.get("/approvals", c.approvals);
 clientPortalRoutes.post("/approvals/:id/decision", validate({ params: idParam, body: approvalDecisionSchema }), c.decideApproval);
 clientPortalRoutes.get("/messages", c.threads);
 clientPortalRoutes.post("/messages", validate({ body: newThreadSchema }), c.startThread);
+clientPortalRoutes.get("/messages/mentionable", c.mentionable);
 clientPortalRoutes.get("/messages/:id", validate({ params: idParam }), c.thread);
 clientPortalRoutes.post("/messages/:id", validate({ params: idParam, body: replySchema }), c.reply);
 clientPortalRoutes.get("/meetings", c.meetings);

@@ -13,6 +13,8 @@ export interface ThreadRow {
   last_body: string | null;
   last_author: string | null;
   last_from_client: 0 | 1 | null;
+  /** Times the viewer is @mentioned in this thread (lists only). */
+  mentions_me?: number;
 }
 
 export interface MessageRow {
@@ -22,6 +24,7 @@ export interface MessageRow {
   author: string | null;
   author_id: number | null;
   from_client: 0 | 1;
+  mentions: { user_id: number; full_name: string }[] | null;
 }
 
 export const MEETING_REQUEST_STATUSES = ["pending", "scheduled", "declined", "withdrawn"] as const;

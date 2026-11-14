@@ -63,7 +63,8 @@ export async function decideApproval(req: Request, res: Response) {
 
 export const thread = async (_req: Request, res: Response) => void res.json(await service.getThread(ctx(res), idOf(res)));
 export const startThread = async (req: Request, res: Response) => void res.status(201).json(await service.startThread(req.user!, ctx(res), req.body));
-export const reply = async (req: Request, res: Response) => void res.status(201).json(await service.reply(req.user!, ctx(res), idOf(res), req.body.body));
+export const reply = async (req: Request, res: Response) => void res.status(201).json(await service.reply(req.user!, ctx(res), idOf(res), req.body.body, req.body.mentions));
+export const mentionable = async (req: Request, res: Response) => void res.json({ items: await service.getMentionable(req.user!, ctx(res)) });
 export const updateSettings = async (req: Request, res: Response) => void res.json(await service.updateSettings(ctx(res), req.body));
 
 export const packages = async (_req: Request, res: Response) => void res.json(await service.getPackages(ctx(res)));

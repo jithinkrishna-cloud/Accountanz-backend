@@ -11,6 +11,7 @@ import type { PoolConnection } from "mysql2/promise";
 import { env, isProd } from "../../config/env.js";
 import { logger } from "../../utils/logger.js";
 import { execute, pool, query, withTransaction, type Param } from "../connection.js";
+import { addApprovals, addReports, deleteReportFiles } from "./demo-deliverables.js";
 
 const ins = async (conn: PoolConnection, table: string, row: Record<string, Param>) => {
   const keys = Object.keys(row);
@@ -58,6 +59,7 @@ async function main() {
   const hash = await bcrypt.hash(env.SEED_PASSWORD, 12);
 
   await withTransaction(async (conn) => {
+    await deleteReportFiles(conn); // stored PDFs of the reports about to be wiped
     await conn.query("SET FOREIGN_KEY_CHECKS = 0");
     const tables = await query<{ t: string }>(`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = ?`, [env.DB_NAME], conn);
     for (const { t } of tables) if (!MASTER_TABLES.has(t)) await conn.query(`TRUNCATE TABLE \`${t}\``);
@@ -238,6 +240,7 @@ async function main() {
       if (i === 0) await ins(conn, "assignments", { client_id: clientId, user_id: sneha, team_role: "cfo", valid_from: dayOf(period(-6), 1) });
 
       // Client portal logins for ABC Traders: an owner (can approve) and a member. Demo password: 12345678.
+      let clientDecider: number | null = null;
       if (i === 0) {
         const clientHash = await bcrypt.hash("12345678", 12);
         const clientUser = (email: string, full_name: string, portal_role: string, phone: string) =>
@@ -246,6 +249,7 @@ async function main() {
         const member = await clientUser("accounts@abctraders.in", "Deepa Varghese", "client_member", "+91 94470 67890");
         await ins(conn, "client_users", { client_id: clientId, user_id: owner, role: "owner", can_approve: true });
         await ins(conn, "client_users", { client_id: clientId, user_id: member, role: "member", can_approve: false });
+        clientDecider = owner;
       }
 
       // Last period: all approved and closed. Current period: a mix of states.
@@ -282,6 +286,11 @@ async function main() {
         }
         await ins(conn, "period_closings", { client_id: clientId, period: p, status: closed ? "closed" : "open", closed_by: closed ? reviewer : null, closed_at: closed ? new Date() : null });
       }
+
+      // Last month's reports (small generated PDFs in file storage) and the client's approvals.
+      const deliverables = { clientId, name: trade_name, period: prev, publishedOn: dayOf(cur, 3), preparer: bookkeeper, approver: reviewer, clientDecider, seed: i };
+      await addReports(conn, deliverables);
+      await addApprovals(conn, deliverables);
 
       // Documents and requests. Demo rows reference storage keys with no uploaded file behind them.
       const requestId = await ins(conn, "document_requests", { client_id: clientId, requested_by: bookkeeper, description: "Bank statements for all current accounts", due_date: dayOf(cur, 14 + i), period: cur, status: "open" });

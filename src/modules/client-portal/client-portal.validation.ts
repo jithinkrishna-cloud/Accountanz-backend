@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { optionalText, periodSchema } from "../../utils/zod-helpers.js";
+import { mentionsSchema } from "../communication/communication.validation.js";
 import { DOCUMENT_CATEGORIES } from "../documents/document.types.js";
 import { NOTIFICATION_PREFS } from "./client-portal.types.js";
 
@@ -30,9 +31,10 @@ export const approvalDecisionSchema = z
 export const newThreadSchema = z.object({
   subject: z.string().trim().min(2, "Add a subject").max(200),
   body: z.string().trim().min(1, "Write a message").max(5000),
+  mentions: mentionsSchema,
 });
 
-export const replySchema = z.object({ body: z.string().trim().min(1, "Write a message").max(5000) });
+export const replySchema = z.object({ body: z.string().trim().min(1, "Write a message").max(5000), mentions: mentionsSchema });
 
 export const MEETING_DURATIONS = [15, 30, 45, 60] as const;
 
@@ -61,6 +63,7 @@ export const settingsSchema = z
 export type UploadMeta = z.infer<typeof uploadMetaSchema>;
 export type ApprovalDecisionInput = z.infer<typeof approvalDecisionSchema>;
 export type NewThreadInput = z.infer<typeof newThreadSchema>;
+export type ReplyInput = z.infer<typeof replySchema>;
 export type SettingsInput = z.infer<typeof settingsSchema>;
 export type ConnectJournlInput = z.infer<typeof connectJournlSchema>;
 export type MeetingRequestInput = z.infer<typeof meetingRequestSchema>;
