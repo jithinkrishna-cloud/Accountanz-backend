@@ -111,3 +111,40 @@ export async function gates(assignmentId: number, db?: PoolConnection) {
 /** A person's assignments on a client that grant access today. */
 export const activeAssignmentIds = async (userId: number, clientId: number) =>
   (await query<{ id: number }>(`SELECT a.id FROM assignments a WHERE a.user_id = ? AND a.client_id = ? AND ${activeAssignmentSql("a")}`, [userId, clientId])).map((r) => r.id);
+
+/** Every client that uses JournL or has someone assigned, with its connection and whether a JournL session is live. */
+export const accessClients = () =>
+  query<{
+    client_id: number;
+    client_name: string;
+    client_status: string;
+    engagement_active: 0 | 1;
+    connection_status: string | null;
+    org_id: string | null;
+    org_name: string | null;
+    session_until: string | null;
+    verification_note: string | null;
+  }>(
+    `SELECT c.id AS client_id, COALESCE(c.trade_name, c.legal_name) AS client_name, c.status AS client_status,
+            EXISTS (SELECT 1 FROM engagements e WHERE e.client_id = c.id AND e.status = 'active') AS engagement_active,
+            ic.status AS connection_status, ic.external_org_id AS org_id, ic.external_org_name AS org_name,
+            CASE WHEN ic.access_token_enc IS NOT NULL AND ic.token_expires_at > UTC_TIMESTAMP() THEN ic.token_expires_at END AS session_until,
+            ic.verification_note
+       FROM clients c
+       LEFT JOIN integration_connections ic ON ic.client_id = c.id AND ic.provider = 'journl'
+      WHERE c.status <> 'exited'
+        AND (ic.id IS NOT NULL OR EXISTS (SELECT 1 FROM assignments a WHERE a.client_id = c.id AND ${activeAssignmentSql("a")}))
+      ORDER BY client_name`,
+  );
+
+/** Today's assignments (one row per person and role) on the given clients. */
+export const accessAssignments = (clientIds: number[]) =>
+  clientIds.length
+    ? query<{ assignment_id: number; client_id: number; user_id: number; full_name: string; team_role: string }>(
+        `SELECT a.id AS assignment_id, a.client_id, a.user_id, u.full_name, a.team_role
+           FROM assignments a JOIN users u ON u.id = a.user_id
+          WHERE a.client_id IN (${clientIds.map(() => "?").join(",")}) AND ${activeAssignmentSql("a")}
+          ORDER BY u.full_name`,
+        clientIds,
+      )
+    : Promise.resolve([]);

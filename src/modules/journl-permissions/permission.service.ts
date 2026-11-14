@@ -107,3 +107,38 @@ export async function setModulePermission(actor: AuthUser, assignmentId: number,
   });
   return assignmentPermissions(assignmentId);
 }
+
+/**
+ * Admin overview of JournL access: per client, the connection and session, and for each person assigned today
+ * the gates and which modules they can actually read. One place to see who can open what in JournL.
+ */
+export async function accessOverview() {
+  const [clients, catalogModules] = await Promise.all([repo.accessClients(), repo.catalog()]);
+  const assignments = await repo.accessAssignments(clients.map((c) => c.client_id));
+  const perms = await Promise.all(assignments.map((a) => assignmentPermissions(a.assignment_id)));
+  return {
+    modules: catalogModules.filter((m) => m.default_policy !== "restricted").map((m) => ({ key: m.module_key, label: m.label, journl_features: m.journl_module_id })),
+    clients: clients.map((c) => ({
+      client_id: c.client_id,
+      client_name: c.client_name,
+      client_status: c.client_status,
+      engagement_active: !!c.engagement_active,
+      connection: c.connection_status ? { status: c.connection_status, org_id: c.org_id, org_name: c.org_name, session_until: c.session_until, verification_note: c.verification_note } : null,
+      people: assignments
+        .map((a, i) => ({ a, p: perms[i]! }))
+        .filter(({ a }) => a.client_id === c.client_id)
+        .map(({ a, p }) => ({
+          assignment_id: a.assignment_id,
+          user_id: a.user_id,
+          full_name: a.full_name,
+          team_role: a.team_role,
+          journl_access: p.journl_access,
+          modules: Object.fromEntries(
+            p.modules
+              .filter((m) => m.default_policy !== "restricted")
+              .map((m) => [m.module_key, { granted: m.grant?.status === "active" && m.grant.allowed_actions.length > 0, effective: m.effective_actions.length > 0, reason: m.blocked_reason }]),
+          ),
+        })),
+    })),
+  };
+}

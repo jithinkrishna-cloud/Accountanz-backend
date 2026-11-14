@@ -15,3 +15,5 @@ export async function setModule(req: Request, res: Response) {
   const p = res.locals.params as ModulePermissionParams;
   res.json(await service.setModulePermission(req.user!, p.id, p.moduleKey, (req.body as ModulePermissionBody).actions));
 }
+
+export const overview = async (_req: Request, res: Response) => void res.json(await service.accessOverview());

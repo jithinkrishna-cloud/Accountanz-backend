@@ -7,5 +7,6 @@ import { modulePermissionBody, modulePermissionParams } from "./permission.valid
 export const journlPermissionRoutes = Router();
 
 journlPermissionRoutes.get("/catalog", controller.catalog);
+journlPermissionRoutes.get("/overview", controller.overview);
 journlPermissionRoutes.get("/assignments/:id", validate({ params: idParam }), controller.forAssignment);
 journlPermissionRoutes.put("/assignments/:id/modules/:moduleKey", validate({ params: modulePermissionParams, body: modulePermissionBody }), controller.setModule);
