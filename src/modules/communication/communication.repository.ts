@@ -11,7 +11,7 @@ const LAST = (col: string) => `(SELECT ${col} FROM messages m LEFT JOIN users u 
 const THREAD_COLUMNS = `t.id, t.client_id, COALESCE(c.trade_name, c.legal_name) AS client_name, t.subject, t.visibility, t.created_at,
   (SELECT COUNT(*) FROM messages m WHERE m.thread_id = t.id) AS messages,
   (SELECT MAX(m.created_at) FROM messages m WHERE m.thread_id = t.id) AS last_at,
-  ${LAST("m.body")} AS last_body, ${LAST("u.full_name")} AS last_author, ${LAST(CLIENT_AUTHOR)} AS last_from_client`;
+  ${LAST("m.body")} AS last_body, ${LAST("u.full_name")} AS last_author, ${LAST("m.author_id")} AS last_author_id, ${LAST(CLIENT_AUTHOR)} AS last_from_client`;
 
 /** `userId` marks (and, with q.mentioned, limits to) threads where that person has been @mentioned. */
 export async function listThreads(q: ThreadListQuery, scope: Scope, userId: number): Promise<Paged<ThreadRow>> {

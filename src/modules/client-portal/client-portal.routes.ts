@@ -47,6 +47,8 @@ clientPortalRoutes.post("/meeting-requests", validate({ body: meetingRequestSche
 clientPortalRoutes.post("/meeting-requests/:id/withdraw", validate({ params: idParam }), c.withdrawMeetingRequest);
 clientPortalRoutes.get("/billing", c.billing);
 clientPortalRoutes.get("/packages", c.packages);
+clientPortalRoutes.get("/proposal", c.proposal);
+clientPortalRoutes.post("/proposal/accept", c.acceptProposal);
 clientPortalRoutes.post("/packages/:id/choose", validate({ params: idParam }), c.choosePackage);
 clientPortalRoutes.get("/settings", c.settings);
 clientPortalRoutes.patch("/settings", validate({ body: settingsSchema }), c.updateSettings);

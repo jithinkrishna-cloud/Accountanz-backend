@@ -17,7 +17,9 @@ export interface EngagementRow {
   client_status: string;
   package_id: number;
   package_name: string;
+  /** What's billed: the agreed fee, or the package's list price. */
   monthly_fee: number;
+  list_fee: number;
   billing_cycle: "monthly" | "quarterly" | "yearly";
   status: EngagementStatus;
   start_date: string | null;

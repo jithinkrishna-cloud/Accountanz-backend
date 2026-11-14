@@ -11,6 +11,8 @@ import { notifyApprovalDecided, notifyClientMessage, notifyDocumentReceived, not
 import { setClientSoftware } from "../integrations/integration.repository.js";
 import { journlGateway } from "../integrations/journl.gateway.js";
 import { insertEngagement, updateEngagement as updateEngagementRow } from "../engagements/engagement.repository.js";
+import { acceptByClient } from "../onboarding/onboarding.service.js";
+import { clientProposal } from "../onboarding/onboarding.repository.js";
 import { findPackageById, listPackages } from "../packages/package.repository.js";
 import * as repo from "./client-portal.repository.js";
 import { NOTIFICATION_PREFS, type ClientContext, type NotificationPrefs } from "./client-portal.types.js";
@@ -263,8 +265,31 @@ export async function getPackages(ctx: ClientContext) {
  * team to take forward (agreement, activation, first invoice). While the engagement is still a draft the
  * owner can switch package; once it has been sent, a change goes through the team.
  */
+// ── Proposal from Accountanz ──
+/**
+ * The proposal the team sent (until it's accepted), or the accepted one while the company is still onboarding,
+ * so the client can see what they agreed to and what happens next.
+ */
+export async function getProposal(ctx: ClientContext) {
+  const p = await clientProposal(ctx.clientId);
+  if (!p || (p.stage === "accepted" && ctx.clientStatus !== "onboarding" && ctx.clientStatus !== "lead")) return null;
+  const { services, ...rest } = p;
+  return { ...rest, monthly_fee: Number(p.monthly_fee), services: services?.split("||") ?? [], can_accept: ctx.role === "owner" && p.stage === "proposal_sent" };
+}
+
+export async function acceptProposal(actor: AuthUser, ctx: ClientContext) {
+  if (ctx.role !== "owner") throw AppError.forbidden("Only the company owner can accept the proposal");
+  await acceptByClient(actor, ctx.clientId);
+  return getProposal({ ...ctx, clientStatus: ctx.clientStatus === "lead" ? "onboarding" : ctx.clientStatus });
+}
+
 export async function choosePackage(actor: AuthUser, ctx: ClientContext, packageId: number) {
   if (ctx.role !== "owner") throw AppError.forbidden("Only the company owner can choose a package");
+  const proposal = await clientProposal(ctx.clientId);
+  if (proposal?.stage === "proposal_sent" && proposal.package_id !== packageId) {
+    throw AppError.conflict(`Your team has proposed ${proposal.package_name} for you. Accept it, or message your team if you'd like a different package.`);
+  }
+  if (proposal?.stage === "proposal_sent") return acceptProposal(actor, ctx).then(() => getPackages(ctx));
   if (ctx.clientStatus === "exited") throw AppError.conflict("Your company has left Accountanz. Contact us to come back.");
   const pkg = await findPackageById(packageId);
   if (!pkg || !pkg.is_active) throw AppError.notFound("Package");

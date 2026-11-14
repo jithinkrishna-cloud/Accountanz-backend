@@ -16,6 +16,8 @@ export interface ClientRow {
   accounting_software: AccountingSoftware;
   created_at: string;
   updated_at: string;
+  /** Roles the client's package includes that nobody is assigned to (active and onboarding clients). */
+  missing_roles?: string[];
 }
 
 export interface ClientBranchRow {
@@ -29,4 +31,7 @@ export interface ClientDetail extends ClientRow {
   branches: ClientBranchRow[];
   portalUsers: { user_id: number; full_name: string; email: string; role: "owner" | "member"; can_approve: 0 | 1 }[];
   team: { user_id: number; full_name: string; team_role: string; valid_from: string; valid_to: string | null }[];
+  /** The roles the client's package includes (null when there's no open engagement). */
+  package_roles: string[] | null;
+  package_name: string | null;
 }

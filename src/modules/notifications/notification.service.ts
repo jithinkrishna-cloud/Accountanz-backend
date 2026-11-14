@@ -3,7 +3,7 @@
  * They never throw: callers fire them after their transaction commits (`void notifyX(...)`), so a mail
  * problem can't undo or slow down the action. Idempotency keys stop duplicates on retries.
  */
-import { approvalDecidedEmail, approvalRequestedEmail, clientMessageEmail, companyRegisteredEmail, documentRequestedEmail, meetingCancelledEmail, meetingRequestDeclinedEmail, meetingRequestedEmail, meetingScheduledEmail, mentionedEmail, reportPublishedEmail, teamMessageEmail, documentReceivedEmail, invoiceIssuedEmail, taskAssignedEmail, taskReviewedEmail, taskSubmittedEmail } from "../../emails/templates.js";
+import { approvalDecidedEmail, approvalRequestedEmail, clientMessageEmail, companyRegisteredEmail, documentRequestedEmail, meetingCancelledEmail, meetingRequestDeclinedEmail, meetingRequestedEmail, meetingScheduledEmail, mentionedEmail, proposalAcceptedEmail, proposalSentEmail, reportPublishedEmail, teamMessageEmail, documentReceivedEmail, invoiceIssuedEmail, taskAssignedEmail, taskReviewedEmail, taskSubmittedEmail } from "../../emails/templates.js";
 import { logger } from "../../utils/logger.js";
 import { sendMail } from "../../utils/mailer.js";
 import { findMeetingRequest } from "../communication/communication.repository.js";
@@ -110,6 +110,30 @@ export const notifyClientMessage = (clientId: number, d: { clientName: string; s
       if (d.skipEmails?.includes(m.email)) continue;
       const content = clientMessageEmail({ recipientName: m.full_name, clientName: d.clientName, author: d.author, subject: d.subject, body: d.body });
       await sendMail({ to: m.email, ...content, idempotencyKey: `client-message/${d.threadId}/${d.messageId ?? "first"}/${m.email}` });
+    }
+  });
+
+/** Proposal sent: the client's owners receive it (and see it in their portal). */
+export const notifyProposalSent = (caseId: number) =>
+  safely("proposal-sent", async () => {
+    const p = await repo.findProposalForEmail(caseId);
+    if (!p) return;
+    for (const o of await repo.listOwnerContacts(p.client_id)) {
+      const content = proposalSentEmail({ recipientName: o.full_name, company: p.company, packageName: p.package_name, fee: Number(p.fee), billingCycle: p.billing_cycle, services: p.services?.split("||") ?? [], message: p.message, sentBy: p.sent_by });
+      await sendMail({ to: o.email, ...content, idempotencyKey: `proposal-sent/${caseId}/${o.email}` });
+    }
+  });
+
+/** Proposal accepted (in the portal or by staff): admins and the assessor hear, once each. */
+export const notifyProposalAccepted = (caseId: number) =>
+  safely("proposal-accepted", async () => {
+    const p = await repo.findProposalForEmail(caseId);
+    if (!p) return;
+    const recipients = await repo.listAdminContacts();
+    if (p.assessor_email && !recipients.some((r) => r.email === p.assessor_email)) recipients.push({ email: p.assessor_email, full_name: p.assessor_name ?? "there" });
+    for (const r of recipients) {
+      const content = proposalAcceptedEmail({ recipientName: r.full_name, company: p.company, packageName: p.package_name, fee: Number(p.fee), acceptedBy: p.accepted_by ?? "The client", inPortal: p.accepted_via === "client" });
+      await sendMail({ to: r.email, ...content, idempotencyKey: `proposal-accepted/${caseId}/${r.email}` });
     }
   });
 

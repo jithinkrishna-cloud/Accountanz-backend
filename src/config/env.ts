@@ -5,6 +5,12 @@ const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(4000),
   APP_URL: z.url().default("http://localhost:3000"),
+  /** Extra browser origins allowed by CORS besides APP_URL, comma-separated (e.g. a dev tunnel). */
+  CORS_ORIGINS: z
+    .string()
+    .default("")
+    .transform((v) => v.split(",").map((s) => s.trim().replace(/\/+$/, "")).filter(Boolean))
+    .pipe(z.array(z.url())),
   DB_HOST: z.string().min(1),
   DB_PORT: z.coerce.number().int().positive().default(3306),
   DB_USER: z.string().min(1),

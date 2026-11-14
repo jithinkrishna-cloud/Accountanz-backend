@@ -1,14 +1,16 @@
 import type { PoolConnection } from "mysql2/promise";
-import { execute, pool, query } from "../../database/connection.js";
+import { execute, pool, query, type Param } from "../../database/connection.js";
 import type { PackageRow, PackageWithServices } from "./package.types.js";
 import type { PackageInput, PackageUpdateInput } from "./package.validation.js";
 
 type Db = PoolConnection | typeof pool;
-const WRITABLE = ["name", "description", "monthly_fee", "billing_cycle", "scope_notes", "is_active"] as const;
+const WRITABLE = ["name", "description", "monthly_fee", "billing_cycle", "scope_notes", "team_roles", "is_active"] as const;
+/** team_roles is stored as JSON. */
+const toDb = (k: (typeof WRITABLE)[number], v: unknown) => (k === "team_roles" ? JSON.stringify(v ?? []) : (v ?? null)) as Param;
 
 export async function listPackages(id?: number): Promise<PackageWithServices[]> {
   const rows = await query<PackageRow>(
-    `SELECT id, name, description, monthly_fee, billing_cycle, scope_notes, is_active FROM packages ${id ? "WHERE id = ?" : ""} ORDER BY monthly_fee DESC, name`,
+    `SELECT id, name, description, monthly_fee, billing_cycle, scope_notes, team_roles, is_active FROM packages ${id ? "WHERE id = ?" : ""} ORDER BY monthly_fee DESC, name`,
     id ? [id] : [],
   );
   if (!rows.length) return [];
@@ -33,7 +35,7 @@ export async function findPackageById(id: number) {
 export async function insertPackage(input: PackageInput, db: Db): Promise<number> {
   const r = await execute(
     `INSERT INTO packages (${WRITABLE.join(", ")}) VALUES (${WRITABLE.map(() => "?").join(", ")})`,
-    WRITABLE.map((k) => input[k] ?? null),
+    WRITABLE.map((k) => toDb(k, input[k])),
     db,
   );
   return r.insertId;
@@ -42,7 +44,7 @@ export async function insertPackage(input: PackageInput, db: Db): Promise<number
 export async function updatePackage(id: number, input: PackageUpdateInput, db: Db) {
   const keys = WRITABLE.filter((k) => k in input);
   if (!keys.length) return;
-  await execute(`UPDATE packages SET ${keys.map((k) => `${k} = ?`).join(", ")} WHERE id = ?`, [...keys.map((k) => input[k] ?? null), id], db);
+  await execute(`UPDATE packages SET ${keys.map((k) => `${k} = ?`).join(", ")} WHERE id = ?`, [...keys.map((k) => toDb(k, input[k])), id], db);
 }
 
 export async function replacePackageServices(packageId: number, serviceIds: number[], db: Db) {

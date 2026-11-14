@@ -343,6 +343,45 @@ export function meetingRequestDeclinedEmail(d: { recipientName: string; topic: s
   };
 }
 
+/** The team sent a proposal: to the client's owner(s). */
+export function proposalSentEmail(d: { recipientName: string; company: string; packageName: string; fee: number; billingCycle: string; services: string[]; message: string | null; sentBy: string | null }): EmailContent {
+  const url = appUrl("/app/dashboard");
+  const fee = `${inr(d.fee)} per ${d.billingCycle === "monthly" ? "month" : d.billingCycle === "quarterly" ? "quarter" : "year"} + GST`;
+  return {
+    subject: `Your Accountanz proposal: ${d.packageName}`,
+    html: layout({
+      title: "Your proposal is ready",
+      preheader: `${d.packageName} for ${d.company}: ${fee}`,
+      body:
+        paragraph(`Hi ${d.recipientName},`) +
+        paragraph(`Based on our review of ${d.company}, we recommend the ${d.packageName} package.`) +
+        facts([["Package", d.packageName], ["Fee", fee], ["Includes", d.services.join(", ") || null]]) +
+        (d.message ? paragraph(`A note from ${d.sentBy ?? "your Accountanz team"}:`) + quote(d.message) : "") +
+        paragraph("Review it in your portal and accept it there, or reply with any questions.") +
+        button("View your proposal", url),
+    }),
+    text: plainText(`Hi ${d.recipientName},`, `We recommend the ${d.packageName} package for ${d.company}: ${fee}.`, d.services.length ? `Includes: ${d.services.join(", ")}` : "", d.message ?? "", `View and accept it: ${url}`),
+  };
+}
+
+/** A proposal was accepted: to admins and whoever assessed the prospect. */
+export function proposalAcceptedEmail(d: { recipientName: string; company: string; packageName: string; fee: number; acceptedBy: string; inPortal: boolean }): EmailContent {
+  const url = appUrl("/admin/engagements");
+  return {
+    subject: `Proposal accepted: ${d.company} (${d.packageName})`,
+    html: layout({
+      title: `${d.company} accepted their proposal`,
+      preheader: `${d.acceptedBy} accepted ${d.packageName}`,
+      body:
+        paragraph(`Hi ${d.recipientName},`) +
+        paragraph(`${d.acceptedBy} accepted the ${d.packageName} proposal${d.inPortal ? " in the client portal" : ""}. A draft engagement is ready: send the agreement, upload it once signed, then activate.`) +
+        facts([["Company", d.company], ["Package", d.packageName], ["Monthly fee", `${inr(d.fee)} + GST`]]) +
+        button("Open engagements", url),
+    }),
+    text: plainText(`Hi ${d.recipientName},`, `${d.acceptedBy} accepted the ${d.packageName} proposal for ${d.company}.`, `Engagements: ${url}`),
+  };
+}
+
 /** Someone @mentioned the recipient in a conversation. */
 export function mentionedEmail(d: { recipientName: string; clientName: string; author: string; subject: string; body: string; forClient: boolean }): EmailContent {
   const url = appUrl(d.forClient ? "/app/messages" : "/team/messages");

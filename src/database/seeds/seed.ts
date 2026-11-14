@@ -118,12 +118,14 @@ async function main() {
       monthly_fee: 48000,
       billing_cycle: "monthly",
       scope_notes: "Up to 1,200 transactions a month. Multi-branch. Quarterly review call with the CFO.",
+      team_roles: JSON.stringify(["bookkeeper", "finance_manager", "cfo"]),
     });
     const basic = await ensure(conn, "packages", { name: "Monthly Bookkeeping" }, {
       description: "Core bookkeeping and compliance for growing businesses.",
       monthly_fee: 25000,
       billing_cycle: "monthly",
       scope_notes: "Up to 500 transactions a month. Two bank accounts. GST returns filed by the 20th.",
+      team_roles: JSON.stringify(["bookkeeper", "finance_manager"]),
     });
     for (const s of [bk, gst, pay, rep]) await insIgnore(conn, "package_services", { package_id: growth, service_id: s });
     for (const s of [bk, gst]) await insIgnore(conn, "package_services", { package_id: basic, service_id: s });

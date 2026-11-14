@@ -212,12 +212,13 @@ export const decideApproval = (id: number, status: string, userId: number, comme
 
 // ── Messages & meetings ──
 export const listThreads = (clientId: number) =>
-  query<{ id: number; subject: string | null; created_at: string; messages: number; last_at: string | null; last_body: string | null; last_author: string | null }>(
+  query<{ id: number; subject: string | null; created_at: string; messages: number; last_at: string | null; last_body: string | null; last_author: string | null; last_author_id: number | null }>(
     `SELECT t.id, t.subject, t.created_at,
             (SELECT COUNT(*) FROM messages m WHERE m.thread_id = t.id) AS messages,
             (SELECT MAX(m.created_at) FROM messages m WHERE m.thread_id = t.id) AS last_at,
             (SELECT m.body FROM messages m WHERE m.thread_id = t.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_body,
-            (SELECT u.full_name FROM messages m LEFT JOIN users u ON u.id = m.author_id WHERE m.thread_id = t.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_author
+            (SELECT u.full_name FROM messages m LEFT JOIN users u ON u.id = m.author_id WHERE m.thread_id = t.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_author,
+            (SELECT m.author_id FROM messages m WHERE m.thread_id = t.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_author_id
        FROM message_threads t WHERE t.client_id = ? AND t.visibility = 'client' ORDER BY COALESCE(last_at, t.created_at) DESC`,
     [clientId],
   );
@@ -250,7 +251,7 @@ export const listMeetings = (clientId: number) =>
 // ── Billing ──
 export const activePackage = (clientId: number) =>
   queryOne<{ package_name: string; monthly_fee: number; billing_cycle: string; scope_notes: string | null; start_date: string | null; renewal_date: string | null }>(
-    `SELECT p.name AS package_name, p.monthly_fee, p.billing_cycle, p.scope_notes, e.start_date, e.renewal_date
+    `SELECT p.name AS package_name, COALESCE(e.monthly_fee, p.monthly_fee) AS monthly_fee, p.billing_cycle, p.scope_notes, e.start_date, e.renewal_date
        FROM engagements e JOIN packages p ON p.id = e.package_id WHERE e.client_id = ? AND e.status = 'active' ORDER BY e.start_date DESC LIMIT 1`,
     [clientId],
   );

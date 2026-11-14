@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { money, optionalText } from "../../utils/zod-helpers.js";
-import { BILLING_CYCLES } from "./package.types.js";
+import { BILLING_CYCLES, PACKAGE_ROLES } from "./package.types.js";
 
 export const packageBodySchema = z.object({
   name: z.string().trim().min(2, "Enter a package name").max(150),
@@ -8,6 +8,12 @@ export const packageBodySchema = z.object({
   monthly_fee: money.refine((v) => v > 0, "Enter the monthly fee"),
   billing_cycle: z.enum(BILLING_CYCLES).default("monthly"),
   scope_notes: optionalText(1000),
+  /** The team the client gets with this package. */
+  team_roles: z
+    .array(z.enum(PACKAGE_ROLES))
+    .min(1, "Include at least one role")
+    .default(["bookkeeper", "finance_manager"])
+    .transform((roles) => PACKAGE_ROLES.filter((r) => roles.includes(r))),
   is_active: z.boolean().default(true),
   service_ids: z
     .array(z.coerce.number().int().positive())

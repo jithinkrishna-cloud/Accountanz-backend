@@ -12,6 +12,7 @@ export interface ThreadRow {
   last_at: string | null;
   last_body: string | null;
   last_author: string | null;
+  last_author_id: number | null;
   last_from_client: 0 | 1 | null;
   /** Times the viewer is @mentioned in this thread (lists only). */
   mentions_me?: number;

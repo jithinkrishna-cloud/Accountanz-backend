@@ -19,6 +19,8 @@ export const assessmentBodySchema = z.object({
   suggested_package_id: z.coerce.number().int().positive().nullable(),
   suggested_monthly_fee: money.nullable(),
   notes: optionalText(2000),
+  /** Shown to the client with the proposal. */
+  proposal_message: optionalText(2000),
 });
 
 export const stageBodySchema = z.object({

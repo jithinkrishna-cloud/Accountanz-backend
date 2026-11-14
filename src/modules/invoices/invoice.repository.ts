@@ -18,13 +18,13 @@ export interface IssuedInvoice {
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /**
- * Issues a service invoice for the engagement's package fee plus GST (rate snapshot from Settings),
+ * Issues a service invoice for the engagement's agreed fee (or the package's list price) plus GST (rate snapshot from Settings),
  * for the given period (default: current), due in 15 days. Numbers are ACC-YYYYMM-NNNN with one running sequence.
  * Must run inside the caller's transaction.
  */
 export async function issueInvoice(engagementId: number, conn: PoolConnection, period?: string): Promise<IssuedInvoice> {
   const base = await queryOne<{ monthly_fee: number; billing_cycle: keyof typeof CYCLE_MONTHS; gst_rate: number; period: string }>(
-    `SELECT p.monthly_fee, p.billing_cycle,
+    `SELECT COALESCE(e.monthly_fee, p.monthly_fee) AS monthly_fee, p.billing_cycle,
             (SELECT gst_rate FROM app_settings WHERE id = 1) AS gst_rate,
             COALESCE(?, DATE_FORMAT(CURDATE(), '%Y-%m')) AS period
        FROM engagements e JOIN packages p ON p.id = e.package_id

@@ -37,6 +37,26 @@ export const listClientTeamContacts = (clientId: number) =>
     [clientId],
   );
 
+/** A client's active owners (who receive proposals). */
+export const listOwnerContacts = (clientId: number) =>
+  query<Contact>(
+    `SELECT u.email, u.full_name FROM client_users cu JOIN users u ON u.id = cu.user_id WHERE cu.client_id = ? AND cu.role = 'owner' AND u.status = 'active'`,
+    [clientId],
+  );
+
+/** A proposal with what the emails need. */
+export const findProposalForEmail = (caseId: number) =>
+  queryOne<{ client_id: number; company: string; package_name: string; fee: number; billing_cycle: string; message: string | null; sent_by: string | null; assessor_email: string | null; assessor_name: string | null; accepted_by: string | null; accepted_via: "client" | "team" | null; services: string | null }>(
+    `SELECT oc.client_id, COALESCE(c.trade_name, c.legal_name) AS company, p.name AS package_name, oc.suggested_monthly_fee AS fee, p.billing_cycle,
+            oc.proposal_message AS message, u.full_name AS sent_by, u.email AS assessor_email, u.full_name AS assessor_name,
+            ab.full_name AS accepted_by, oc.accepted_via,
+            (SELECT GROUP_CONCAT(s.name ORDER BY s.name SEPARATOR '||') FROM package_services ps JOIN services s ON s.id = ps.service_id WHERE ps.package_id = p.id) AS services
+       FROM onboarding_cases oc JOIN clients c ON c.id = oc.client_id JOIN packages p ON p.id = oc.suggested_package_id
+       LEFT JOIN users u ON u.id = oc.assessed_by AND u.status = 'active' LEFT JOIN users ab ON ab.id = oc.accepted_by
+      WHERE oc.id = ?`,
+    [caseId],
+  );
+
 /** Active admins (who hear about companies registering themselves). */
 export const listAdminContacts = () =>
   query<Contact>(`SELECT email, full_name FROM users WHERE portal_role IN ('super_admin', 'ops_admin') AND status = 'active'`);

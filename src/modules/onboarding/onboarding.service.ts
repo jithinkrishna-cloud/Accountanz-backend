@@ -7,6 +7,7 @@ import { recordAudit } from "../audit/audit.service.js";
 import * as clientRepo from "../clients/client.repository.js";
 import * as engagementRepo from "../engagements/engagement.repository.js";
 import { findPackageById } from "../packages/package.repository.js";
+import { notifyProposalAccepted, notifyProposalSent } from "../notifications/notification.service.js";
 import * as repo from "./onboarding.repository.js";
 import { STAGE_TRANSITIONS } from "./onboarding.types.js";
 import type { AssessmentInput, OnboardingListQuery, ProspectInput, StageInput } from "./onboarding.validation.js";
@@ -85,19 +86,57 @@ export async function changeStage(actor: AuthUser, id: number, input: StageInput
     await repo.setStage(id, input.to, conn);
     let details = `${humanize(oc.stage)} → ${humanize(input.to)}`;
 
-    if (input.to === "accepted") {
-      const client = await clientRepo.findClientById(oc.client_id, conn);
-      if (client?.status === "lead") await clientRepo.updateClient(oc.client_id, { status: "onboarding" }, conn);
-      const open = await engagementRepo.findOpenEngagement(oc.client_id, conn);
-      if (!open) {
-        const engagementId = await engagementRepo.insertEngagement({ client_id: oc.client_id, package_id: oc.suggested_package_id!, start_date: null, renewal_date: null }, conn);
-        await recordAudit(actor, { action: "Engagement created", entityType: "Engagement", entityId: engagementId, clientId: oc.client_id, details: "Draft opened from accepted proposal" }, conn);
-        details += `; draft engagement #${engagementId} opened`;
-      }
-    }
+    if (input.to === "proposal_sent") await repo.markProposalSent(id, conn);
+    if (input.to === "accepted") details += await acceptOnCase(actor, oc, "team", conn);
     if (input.to === "rejected" && input.reason) details += `: ${input.reason}`;
 
     await recordAudit(actor, { action: "Onboarding stage changed", entityType: "OnboardingCase", entityId: id, clientId: oc.client_id, details }, conn);
   });
+  if (input.to === "proposal_sent") void notifyProposalSent(id);
   return getCase(id);
+}
+
+/**
+ * What accepting a proposal does, whoever accepts it (the client in their portal, or staff after a call):
+ * records who and how, moves a lead to onboarding and opens a draft engagement on the proposed package.
+ * Activation is a separate, later step (signed agreement, then activate). Returns audit detail text.
+ */
+export async function acceptOnCase(
+  actor: AuthUser,
+  oc: { id: number; client_id: number; suggested_package_id: number | null; suggested_monthly_fee: number | null },
+  via: "client" | "team",
+  conn: PoolConnection,
+) {
+  let details = "";
+  await repo.markAccepted(oc.id, actor.id, via, conn);
+  const client = await clientRepo.findClientById(oc.client_id, conn);
+  if (client?.status === "lead") await clientRepo.updateClient(oc.client_id, { status: "onboarding" }, conn);
+  const open = await engagementRepo.findOpenEngagement(oc.client_id, conn);
+  const fee = oc.suggested_monthly_fee == null ? null : Number(oc.suggested_monthly_fee);
+  if (open?.status === "draft") {
+    // A draft the client opened from the catalogue: it now follows the accepted proposal.
+    await engagementRepo.updateEngagement(open.id, { package_id: oc.suggested_package_id!, monthly_fee: fee }, conn);
+    details += `; draft engagement #${open.id} set to the proposed package and fee`;
+  } else if (!open) {
+    const engagementId = await engagementRepo.insertEngagement({ client_id: oc.client_id, package_id: oc.suggested_package_id!, monthly_fee: fee, start_date: null, renewal_date: null }, conn);
+    await recordAudit(actor, { action: "Engagement created", entityType: "Engagement", entityId: engagementId, clientId: oc.client_id, details: `Draft opened from proposal accepted by the ${via}` }, conn);
+    details += `; draft engagement #${engagementId} opened`;
+  }
+  return details;
+}
+
+/** The client accepts their proposal in the portal (owner only; checked by the caller). */
+export async function acceptByClient(actor: AuthUser, clientId: number) {
+  const caseId = await withTransaction(async (conn) => {
+    const current = await repo.clientProposal(clientId);
+    const oc = current ? await repo.lockCase(current.id, conn) : null;
+    if (!oc || oc.client_id !== clientId) throw AppError.notFound("Proposal");
+    if (oc.stage !== "proposal_sent") throw AppError.conflict(oc.stage === "accepted" ? "You've already accepted this proposal" : "This proposal is no longer open. Message your team.");
+    await repo.setStage(oc.id, "accepted", conn);
+    const details = await acceptOnCase(actor, oc, "client", conn);
+    await recordAudit(actor, { action: "Proposal accepted", entityType: "OnboardingCase", entityId: oc.id, clientId, details: `Accepted in the client portal${details}` }, conn);
+    return oc.id;
+  });
+  void notifyProposalAccepted(caseId);
+  return caseId;
 }

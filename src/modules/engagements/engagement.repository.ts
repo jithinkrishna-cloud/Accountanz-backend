@@ -8,7 +8,7 @@ type Db = PoolConnection | typeof pool;
 
 const SELECT = `
   SELECT e.id, e.client_id, COALESCE(c.trade_name, c.legal_name) AS client_name, c.status AS client_status,
-         e.package_id, p.name AS package_name, p.monthly_fee, p.billing_cycle, e.status,
+         e.package_id, p.name AS package_name, COALESCE(e.monthly_fee, p.monthly_fee) AS monthly_fee, p.monthly_fee AS list_fee, p.billing_cycle, e.status,
          e.start_date, e.end_date, e.renewal_date, e.agreement_file_name,
          (SELECT COUNT(*) FROM service_invoices i WHERE i.engagement_id = e.id AND i.status <> 'cancelled') AS invoice_count,
          (SELECT i.invoice_number FROM service_invoices i WHERE i.engagement_id = e.id AND i.status <> 'cancelled' ORDER BY i.period, i.id LIMIT 1) AS first_invoice_number,
@@ -92,19 +92,27 @@ export function findOpenEngagement(clientId: number, db: Db = pool, exceptId?: n
   );
 }
 
-export async function insertEngagement(input: EngagementInput, db: Db = pool): Promise<number> {
+/** `monthly_fee`: the agreed fee when it differs from the package's list price (e.g. from a proposal); null = list price. */
+export async function insertEngagement(input: EngagementInput & { monthly_fee?: number | null }, db: Db = pool): Promise<number> {
   const r = await execute(
-    `INSERT INTO engagements (client_id, package_id, status, start_date, renewal_date) VALUES (?, ?, 'draft', ?, ?)`,
-    [input.client_id, input.package_id, input.start_date, input.renewal_date],
+    `INSERT INTO engagements (client_id, package_id, monthly_fee, status, start_date, renewal_date) VALUES (?, ?, ?, 'draft', ?, ?)`,
+    [input.client_id, input.package_id, input.monthly_fee ?? null, input.start_date, input.renewal_date],
     db,
   );
   return r.insertId;
 }
 
-export async function updateEngagement(id: number, input: EngagementUpdateInput, db: Db = pool) {
-  const keys = (["package_id", "start_date", "renewal_date"] as const).filter((k) => input[k] !== undefined);
+/**
+ * `monthly_fee` is the agreed fee (null = list price). Changing the package without giving a fee resets it to the
+ * new package's list price, so a fee agreed for one package never carries over to another.
+ */
+export async function updateEngagement(id: number, input: EngagementUpdateInput & { monthly_fee?: number | null }, db: Db = pool) {
+  const values: Record<string, unknown> = {};
+  for (const k of ["package_id", "start_date", "renewal_date", "monthly_fee"] as const) if (input[k] !== undefined) values[k] = input[k] ?? null;
+  if (input.package_id !== undefined && input.monthly_fee === undefined) values.monthly_fee = null;
+  const keys = Object.keys(values);
   if (!keys.length) return;
-  await execute(`UPDATE engagements SET ${keys.map((k) => `${k} = ?`).join(", ")} WHERE id = ?`, [...keys.map((k) => input[k] ?? null), id], db);
+  await execute(`UPDATE engagements SET ${keys.map((k) => `${k} = ?`).join(", ")} WHERE id = ?`, [...keys.map((k) => values[k] as Param), id], db);
 }
 
 export async function setStatus(id: number, status: EngagementStatus, db: Db = pool) {

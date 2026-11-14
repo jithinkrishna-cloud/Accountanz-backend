@@ -10,6 +10,34 @@ type Db = PoolConnection | typeof pool;
 const COLUMNS = "id, legal_name, trade_name, gstin, pan, state, address, status, accounting_software, created_at, updated_at";
 const WRITABLE = ["legal_name", "trade_name", "gstin", "pan", "state", "address", "status", "accounting_software"] as const;
 
+/**
+ * Roles each client's package includes vs. the roles assigned today: what's missing. A reviewer covers
+ * finance_manager. Only clients that are onboarding or active are checked.
+ */
+export async function teamCoverage(clientIds: number[]) {
+  const out = new Map<number, { package_name: string; package_roles: string[]; missing: string[] }>();
+  if (!clientIds.length) return out;
+  const marks = clientIds.map(() => "?").join(",");
+  const packages = await query<{ client_id: number; package_name: string; team_roles: string[] }>(
+    `SELECT e.client_id, p.name AS package_name, p.team_roles FROM engagements e JOIN packages p ON p.id = e.package_id
+       JOIN clients c ON c.id = e.client_id
+      WHERE e.client_id IN (${marks}) AND e.status <> 'ended' AND c.status IN ('onboarding', 'active')
+      ORDER BY e.id DESC`,
+    clientIds,
+  );
+  const assigned = await query<{ client_id: number; team_role: string }>(
+    `SELECT DISTINCT a.client_id, a.team_role FROM assignments a WHERE a.client_id IN (${marks}) AND ${activeAssignmentSql("a")}`,
+    clientIds,
+  );
+  for (const p of packages) {
+    if (out.has(p.client_id)) continue; // latest open engagement wins
+    const have = new Set(assigned.filter((a) => a.client_id === p.client_id).map((a) => a.team_role));
+    const missing = p.team_roles.filter((r) => !have.has(r) && !(r === "finance_manager" && have.has("reviewer")));
+    out.set(p.client_id, { package_name: p.package_name, package_roles: p.team_roles, missing });
+  }
+  return out;
+}
+
 export async function listClients(q: ClientListQuery): Promise<Paged<ClientRow>> {
   const where: string[] = [];
   const params: Param[] = [];
@@ -28,7 +56,8 @@ export async function listClients(q: ClientListQuery): Promise<Paged<ClientRow>>
     [...params, q.pageSize, offsetOf(q)],
   );
   const total = await queryOne<{ n: number }>(`SELECT COUNT(*) AS n FROM clients ${whereSql}`, params);
-  return { items, total: total?.n ?? 0, page: q.page, pageSize: q.pageSize };
+  const coverage = await teamCoverage(items.map((c) => c.id));
+  return { items: items.map((c) => ({ ...c, missing_roles: coverage.get(c.id)?.missing ?? [] })), total: total?.n ?? 0, page: q.page, pageSize: q.pageSize };
 }
 
 export function findClientById(id: number, db: Db = pool) {
@@ -58,7 +87,8 @@ export async function getClientDetail(id: number): Promise<ClientDetail | null> 
       [id],
     ),
   ]);
-  return { ...client, branches, portalUsers, team };
+  const coverage = (await teamCoverage([id])).get(id);
+  return { ...client, branches, portalUsers, team, package_roles: coverage?.package_roles ?? null, package_name: coverage?.package_name ?? null, missing_roles: coverage?.missing ?? [] };
 }
 
 export async function insertClient(input: ClientInput, db: Db = pool): Promise<number> {

@@ -9,6 +9,7 @@ import { errorHandler, notFound } from "./middleware/error-handler.js";
 import { adminRoutes } from "./modules/admin.routes.js";
 import { authRoutes } from "./modules/auth/auth.routes.js";
 import { clientPortalRoutes } from "./modules/client-portal/client-portal.routes.js";
+import { projectRoutes } from "./modules/projects/project.routes.js";
 import { teamRoutes } from "./modules/team.routes.js";
 import { logger } from "./utils/logger.js";
 
@@ -20,7 +21,7 @@ export function createApp() {
   app.use(helmet());
   // The browser normally talks to the API through the Next.js /api rewrite (same origin);
   // CORS only matters for direct calls during development.
-  app.use(cors({ origin: env.APP_URL, credentials: true }));
+  app.use(cors({ origin: [env.APP_URL, ...env.CORS_ORIGINS], credentials: true }));
   app.use(express.json({ limit: "1mb" }));
   app.use(cookieParser());
   app.use(pinoHttp({ logger, autoLogging: { ignore: (req) => req.url === "/api/health" } }));
@@ -34,6 +35,7 @@ export function createApp() {
   app.use("/api/admin", adminRoutes);
   app.use("/api/team", teamRoutes);
   app.use("/api/app", clientPortalRoutes);
+  app.use("/api/projects", projectRoutes);
 
   app.use(notFound);
   app.use(errorHandler);

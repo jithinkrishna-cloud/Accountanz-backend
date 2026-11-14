@@ -29,6 +29,15 @@ export interface OnboardingCaseRow {
   suggested_package_id: number | null;
   suggested_package_name: string | null;
   suggested_monthly_fee: number | null;
+  /** What the client reads with the proposal (notes stay internal). */
+  proposal_message: string | null;
+  proposal_sent_at: string | null;
+  accepted_at: string | null;
+  accepted_by_name: string | null;
+  /** "client" = accepted in the portal; "team" = marked accepted by staff. */
+  accepted_via: "client" | "team" | null;
+  /** Active owner logins: without one, the client can't see or accept the proposal online. */
+  owner_logins: number;
   /** Latest engagement for the client, so an accepted case can link straight to it. */
   engagement_id: number | null;
   engagement_status: string | null;

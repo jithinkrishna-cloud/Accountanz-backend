@@ -68,4 +68,6 @@ export const mentionable = async (req: Request, res: Response) => void res.json(
 export const updateSettings = async (req: Request, res: Response) => void res.json(await service.updateSettings(ctx(res), req.body));
 
 export const packages = async (_req: Request, res: Response) => void res.json(await service.getPackages(ctx(res)));
+export const proposal = async (_req: Request, res: Response) => void res.json({ proposal: await service.getProposal(ctx(res)) });
+export const acceptProposal = async (req: Request, res: Response) => void res.json({ proposal: await service.acceptProposal(req.user!, ctx(res)) });
 export const choosePackage = async (req: Request, res: Response) => void res.json(await service.choosePackage(req.user!, ctx(res), idOf(res)));
