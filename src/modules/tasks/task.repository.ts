@@ -28,6 +28,7 @@ export async function listTasks(
   if (q.status) (where.push("t.status = ?"), params.push(q.status));
   if (q.period) (where.push("t.period = ?"), params.push(q.period));
   if (q.source) (where.push("t.creation_source = ?"), params.push(q.source));
+  if (q.client_id) (where.push("t.client_id = ?"), params.push(q.client_id));
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
   const from = `FROM tasks t JOIN clients c ON c.id = t.client_id LEFT JOIN users a ON a.id = t.assignee_id LEFT JOIN users r ON r.id = t.reviewer_id`;
 
@@ -36,12 +37,32 @@ export async function listTasks(
             c.id AS client_id, COALESCE(c.trade_name, c.legal_name) AS client_name,
             t.assignee_id, a.email AS assignee_email, r.email AS reviewer_email
        ${from} ${whereSql}
-      ORDER BY t.period DESC, t.due_date IS NULL, t.due_date, t.id
+      ORDER BY ${TASK_WORK_ORDER}, CASE WHEN t.status = 'approved' THEN t.period END DESC, t.due_date IS NULL, t.due_date, t.id
       LIMIT ? OFFSET ?`,
     [...params, q.pageSize, offsetOf(q)],
   );
   const total = await queryOne<{ n: number }>(`SELECT COUNT(*) AS n ${from} ${whereSql}`, params);
   return { items: rows.map((r) => ({ ...r, client_visible: Boolean(r.client_visible) })), total: total?.n ?? 0, page: q.page, pageSize: q.pageSize };
+}
+
+/** Work that needs doing first (returned, in progress, to do), then waiting for review, then done (newest month first). */
+const TASK_WORK_ORDER = `FIELD(t.status, 'returned', 'in_progress', 'todo', 'submitted', 'approved')`;
+
+/** Per-client task counts for the same scope as `listTasks` (the My Tasks client navigation). */
+export function taskClientSummary(opts: { scopeSql?: string; scopeParams?: Param[]; assigneeId?: number }) {
+  const where: string[] = [];
+  const params: Param[] = [];
+  if (opts.scopeSql) (where.push(opts.scopeSql), params.push(...(opts.scopeParams ?? [])));
+  if (opts.assigneeId) (where.push("t.assignee_id = ?"), params.push(opts.assigneeId));
+  return query<{ client_id: number; client_name: string; total: number; open: number; overdue: number }>(
+    `SELECT c.id AS client_id, COALESCE(c.trade_name, c.legal_name) AS client_name, COUNT(*) AS total,
+            CAST(SUM(t.status IN ('todo', 'in_progress', 'returned')) AS UNSIGNED) AS open,
+            CAST(SUM(t.status IN ('todo', 'in_progress', 'returned') AND t.due_date < CURDATE()) AS UNSIGNED) AS overdue
+       FROM tasks t JOIN clients c ON c.id = t.client_id
+      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+      GROUP BY c.id, client_name ORDER BY client_name`,
+    params,
+  );
 }
 
 // ───────────────────────────── One task ─────────────────────────────

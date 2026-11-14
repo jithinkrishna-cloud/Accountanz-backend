@@ -9,6 +9,7 @@ import {
   taskListQuerySchema,
   updateTaskSchema,
   workLogSchema,
+  taskClientsQuerySchema,
 } from "./task.validation.js";
 
 /** Admin portal: /api/admin/tasks */
@@ -26,6 +27,7 @@ export const staffTaskRoutes = Router();
 
 staffTaskRoutes.get("/", validate({ query: taskListQuerySchema }), controller.listForStaff);
 staffTaskRoutes.get("/options", validate({ query: optionsQuerySchema }), controller.options);
+staffTaskRoutes.get("/clients", validate({ query: taskClientsQuerySchema }), controller.clientsForStaff);
 staffTaskRoutes.post("/", validate({ body: createTaskSchema }), controller.create);
 staffTaskRoutes.get("/:id", validate({ params: idParam }), controller.get);
 staffTaskRoutes.patch("/:id", validate({ params: idParam, body: updateTaskSchema }), controller.update);

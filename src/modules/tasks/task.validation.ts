@@ -7,9 +7,12 @@ export const taskListQuerySchema = listQuerySchema.extend({
   status: z.enum(TASK_STATUSES).optional(),
   period: periodSchema.optional(),
   source: z.enum(TASK_SOURCES).optional(),
+  client_id: z.coerce.number().int().positive().optional(),
   /** Accountant portal: "mine" = assigned to me, "clients" = every task on my clients (managers only). */
   scope: z.enum(["mine", "clients"]).default("mine"),
 });
+
+export const taskClientsQuerySchema = z.object({ scope: z.enum(["mine", "clients"]).default("mine") });
 
 export const generateTasksSchema = z.object({ period: periodSchema });
 

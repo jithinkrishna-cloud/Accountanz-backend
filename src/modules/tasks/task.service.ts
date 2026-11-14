@@ -74,6 +74,15 @@ export function listTasksForStaff(actor: AuthUser, q: TaskListQuery) {
   return repo.listTasks(q, { assigneeId: actor.id });
 }
 
+/** Clients with tasks in the same scope as the list, with open / overdue counts. */
+export function listTaskClientsForStaff(actor: AuthUser, scope: "mine" | "clients") {
+  if (scope === "clients" && TASK_MANAGER_ROLES.includes(actor.role)) {
+    const s = clientScope(actor, "t.client_id");
+    return repo.taskClientSummary({ scopeSql: s.sql, scopeParams: s.params });
+  }
+  return repo.taskClientSummary({ assigneeId: actor.id });
+}
+
 export async function getTaskDetail(actor: AuthUser, id: number): Promise<TaskDetail> {
   const task = await repo.findTask(id);
   if (!task) throw AppError.notFound("Task");

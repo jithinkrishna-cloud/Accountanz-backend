@@ -14,6 +14,10 @@ export async function listForStaff(req: Request, res: Response) {
   res.json(await service.listTasksForStaff(req.user!, res.locals.query as TaskListQuery));
 }
 
+export async function clientsForStaff(req: Request, res: Response) {
+  res.json({ items: await service.listTaskClientsForStaff(req.user!, (res.locals.query as { scope: "mine" | "clients" }).scope) });
+}
+
 export async function options(req: Request, res: Response) {
   res.json(await service.getTaskOptions(req.user!, (res.locals.query as { client_id?: number }).client_id));
 }
