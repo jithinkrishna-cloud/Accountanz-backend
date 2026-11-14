@@ -170,6 +170,8 @@ async function main() {
          SELECT module_key, 'view', 'View (read-only)', 'view', UTC_TIMESTAMP() FROM journl_modules`,
     );
 
+    const grantableModules = (await query<{ module_key: string }>(`SELECT module_key FROM journl_modules WHERE default_policy <> 'restricted' ORDER BY sort_order`, [], conn)).map((m) => m.module_key);
+
     // ── Clients ──
     const clientDefs = [
       ["ABC Traders Pvt Ltd", "ABC Traders", "32ABCDE1234F1Z5", "ABCDE1234F", "Kerala", "active", "journl", growth, 48000],
@@ -225,7 +227,13 @@ async function main() {
 
       const bookkeeper = bookkeepers[i % bookkeepers.length]!;
       const reviewer = reviewers[i % reviewers.length]!;
-      await ins(conn, "assignments", { client_id: clientId, user_id: bookkeeper, team_role: "bookkeeper", valid_from: dayOf(period(-6), 1), journl_access: software === "journl" });
+      const bookkeeperAssignment = await ins(conn, "assignments", { client_id: clientId, user_id: bookkeeper, team_role: "bookkeeper", valid_from: dayOf(period(-6), 1), journl_access: software === "journl" });
+      // JournL clients: the bookkeeper may view every grantable JournL module (Assignments → JournL modules).
+      if (software === "journl") {
+        for (const module_key of grantableModules) {
+          await ins(conn, "assignment_module_permissions", { assignment_id: bookkeeperAssignment, module_key, allowed_actions: JSON.stringify(["view"]), status: "active", granted_by: admin, granted_at: new Date() });
+        }
+      }
       await ins(conn, "assignments", { client_id: clientId, user_id: reviewer, team_role: "finance_manager", valid_from: dayOf(period(-6), 1) });
       if (i === 0) await ins(conn, "assignments", { client_id: clientId, user_id: sneha, team_role: "cfo", valid_from: dayOf(period(-6), 1) });
 

@@ -167,8 +167,8 @@ export const fulfilRequest = (id: number, db: PoolConnection) => execute(`UPDATE
 
 // ── Tasks & reports ──
 export const visibleTasks = (clientId: number, period: string) =>
-  query<{ id: number; title: string; status: string; due_date: string | null; checklist: { text: string; done: boolean }[] }>(
-    `SELECT id, title, status, due_date, checklist FROM tasks WHERE client_id = ? AND period = ? AND client_visible = 1 ORDER BY due_date IS NULL, due_date, id`,
+  query<{ id: number; title: string; description: string | null; status: string; due_date: string | null; checklist: { text: string; done: boolean }[] }>(
+    `SELECT id, title, description, status, due_date, checklist FROM tasks WHERE client_id = ? AND period = ? AND client_visible = 1 ORDER BY due_date IS NULL, due_date, id`,
     [clientId, period],
   );
 
