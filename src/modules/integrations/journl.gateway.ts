@@ -7,15 +7,8 @@ import { logger } from "../../utils/logger.js";
  * - `signIn`: the client owner proves they own a JournL company by signing in with their JournL login.
  *   Accountanz forwards the email and password once to JournL's own `POST /auth/login` and never stores
  *   them. JournL issues the session, so the company it returns is JournL's answer, not the owner's claim.
- * - `getGrant`: a lasting "may Accountanz still access this company?" check. JournL has no partner API
- *   (no grant or refreshable token; its login token expires after 8h), so this answers "unavailable"
- *   and the admin "Check with JournL" button stays hidden.
+ * - `journlGet`: GET-only reads with that session (about 8h; JournL has no refreshable partner token).
  */
-export type GrantResult =
-  | { kind: "active"; companyName: string }
-  | { kind: "failed"; reason: string }
-  | { kind: "unavailable"; reason: string };
-
 export interface JournlCompany {
   id: string;
   name: string;
@@ -34,11 +27,8 @@ export type SignInResult =
   | { kind: "unavailable"; reason: string };
 
 export interface JournlGateway {
-  /** False until JournL ships a partner API; the admin UI hides "Check with JournL" while false. */
-  available: boolean;
   /** True when JOURNL_API_URL is set, so owners can sign in with JournL. */
   signInAvailable: boolean;
-  getGrant(externalOrgId: string): Promise<GrantResult>;
   signIn(email: string, password: string): Promise<SignInResult>;
 }
 
@@ -144,9 +134,7 @@ export async function journlGet<T = unknown>(token: string, path: string, query:
 }
 
 const gateway: JournlGateway = {
-  available: false,
   signInAvailable: !!env.JOURNL_API_URL,
-  getGrant: async () => ({ kind: "unavailable", reason: "The JournL partner API is not available yet. Check the organisation in JournL and use Mark verified." }),
   signIn,
 };
 

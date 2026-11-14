@@ -1,6 +1,10 @@
 /**
- * Loads demo data modelled on the existing Accountanz workspace. Wipes all application tables first.
- * Development only. All demo users share the password in SEED_PASSWORD.
+ * Loads demo data modelled on the existing Accountanz workspace. Development only.
+ *
+ * Master data is kept: settings, the service/package catalogue, task templates, the knowledge base, JournL modules,
+ * and staff accounts. Missing master rows are added; existing ones (and staff passwords) are left untouched.
+ * Everything else is wiped and reseeded: clients and all their work, client logins, sessions, tokens and audit logs.
+ * New staff accounts get SEED_PASSWORD; demo client logins get 12345678.
  */
 import bcrypt from "bcryptjs";
 import type { PoolConnection } from "mysql2/promise";
@@ -13,6 +17,32 @@ const ins = async (conn: PoolConnection, table: string, row: Record<string, Para
   const r = await execute(`INSERT INTO ${table} (${keys.join(", ")}) VALUES (${keys.map(() => "?").join(", ")})`, Object.values(row), conn);
   return r.insertId;
 };
+const insIgnore = async (conn: PoolConnection, table: string, row: Record<string, Param>) => {
+  const keys = Object.keys(row);
+  await execute(`INSERT IGNORE INTO ${table} (${keys.join(", ")}) VALUES (${keys.map(() => "?").join(", ")})`, Object.values(row), conn);
+};
+/** Id of the row matching `where`, inserting `row` first if there is none. */
+const ensure = async (conn: PoolConnection, table: string, where: Record<string, Param>, row: Record<string, Param> = {}) => {
+  const cols = Object.keys(where);
+  const found = await query<{ id: number }>(`SELECT id FROM ${table} WHERE ${cols.map((c) => `${c} = ?`).join(" AND ")} LIMIT 1`, Object.values(where), conn);
+  return found[0]?.id ?? ins(conn, table, { ...where, ...row });
+};
+
+/** Kept between seeds. Every other table (except users, handled below) is wiped. */
+const MASTER_TABLES = new Set([
+  "schema_migrations",
+  "app_settings",
+  "services",
+  "packages",
+  "package_services",
+  "task_templates",
+  "task_template_items",
+  "knowledge_articles",
+  "journl_modules",
+  "journl_module_actions",
+  "users", // staff accounts kept; client logins deleted below
+  "staff_profiles",
+]);
 
 const period = (offsetMonths = 0) => {
   const d = new Date();
@@ -29,15 +59,13 @@ async function main() {
 
   await withTransaction(async (conn) => {
     await conn.query("SET FOREIGN_KEY_CHECKS = 0");
-    const tables = await query<{ t: string }>(
-      `SELECT table_name AS t FROM information_schema.tables WHERE table_schema = ? AND table_name <> 'schema_migrations'`,
-      [env.DB_NAME],
-      conn,
-    );
-    for (const { t } of tables) await conn.query(`TRUNCATE TABLE \`${t}\``);
+    const tables = await query<{ t: string }>(`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = ?`, [env.DB_NAME], conn);
+    for (const { t } of tables) if (!MASTER_TABLES.has(t)) await conn.query(`TRUNCATE TABLE \`${t}\``);
+    await conn.query(`DELETE FROM users WHERE portal_role IN ('client_owner', 'client_member')`);
     await conn.query("SET FOREIGN_KEY_CHECKS = 1");
 
-    await ins(conn, "app_settings", {
+    // ── Master data: added only where missing ──
+    await insIgnore(conn, "app_settings", {
       id: 1,
       company_name: "Accountanz",
       legal_name: "Accountanz Managed Services Pvt Ltd",
@@ -51,10 +79,10 @@ async function main() {
 
     // ── People ──
     const user = (email: string, full_name: string, portal_role: string, phone: string | null = null) =>
-      ins(conn, "users", { email, full_name, portal_role, phone, password_hash: hash, status: "active" });
+      ensure(conn, "users", { email }, { full_name, portal_role, phone, password_hash: hash, status: "active" });
     const staff = async (email: string, name: string, role: string, type: "accountant" | "employee", rate: number, expertise: string[], phone: string) => {
       const id = await user(email, name, role, phone);
-      await ins(conn, "staff_profiles", {
+      await insIgnore(conn, "staff_profiles", {
         user_id: id,
         staff_type: type,
         hourly_rate: rate,
@@ -77,33 +105,31 @@ async function main() {
     const priya = await staff("priya@accountanz.in", "Priya Nair", "finance_manager", "accountant", 900, ["GST", "Reviews"], "+91 98950 66778");
 
     // ── Catalogue ──
-    const svc = (code: string, name: string, description: string) => ins(conn, "services", { code, name, description });
+    const svc = (code: string, name: string, description: string) => ensure(conn, "services", { code }, { name, description });
     const bk = await svc("BK-M", "Monthly Bookkeeping", "Recording, reconciliation and month-end close support.");
     const gst = await svc("GST-R", "GST Filing", "GSTR-1 and GSTR-3B preparation and filing.");
     const pay = await svc("PAY-R", "Payroll Processing", "Salary processing, statutory deductions and payslips.");
     const rep = await svc("REP-M", "Financial Reporting", "Monthly MIS pack with P&L, balance sheet and cash flow.");
 
-    const growth = await ins(conn, "packages", {
-      name: "Growth Compliance",
+    const growth = await ensure(conn, "packages", { name: "Growth Compliance" }, {
       description: "Bookkeeping, GST, payroll and monthly reporting.",
       monthly_fee: 48000,
       billing_cycle: "monthly",
       scope_notes: "Up to 1,200 transactions a month. Multi-branch. Quarterly review call with the CFO.",
     });
-    const basic = await ins(conn, "packages", {
-      name: "Monthly Bookkeeping",
+    const basic = await ensure(conn, "packages", { name: "Monthly Bookkeeping" }, {
       description: "Core bookkeeping and compliance for growing businesses.",
       monthly_fee: 25000,
       billing_cycle: "monthly",
       scope_notes: "Up to 500 transactions a month. Two bank accounts. GST returns filed by the 20th.",
     });
-    for (const s of [bk, gst, pay, rep]) await ins(conn, "package_services", { package_id: growth, service_id: s });
-    for (const s of [bk, gst]) await ins(conn, "package_services", { package_id: basic, service_id: s });
+    for (const s of [bk, gst, pay, rep]) await insIgnore(conn, "package_services", { package_id: growth, service_id: s });
+    for (const s of [bk, gst]) await insIgnore(conn, "package_services", { package_id: basic, service_id: s });
 
     // ── Task templates (as in the existing workspace: all items sit under Monthly Bookkeeping) ──
-    const bookkeepingTpl = await ins(conn, "task_templates", { service_id: bk, name: "Monthly Bookkeeping", recurrence: "monthly", due_day_of_period: 10 });
-    await ins(conn, "task_templates", { service_id: gst, name: "GST Return Filing", recurrence: "monthly", due_day_of_period: 18 });
-    await ins(conn, "task_templates", { service_id: rep, name: "Monthly MIS Pack", recurrence: "monthly", due_day_of_period: 25 });
+    const bookkeepingTpl = await ensure(conn, "task_templates", { name: "Monthly Bookkeeping" }, { service_id: bk, recurrence: "monthly", due_day_of_period: 10 });
+    await ensure(conn, "task_templates", { name: "GST Return Filing" }, { service_id: gst, recurrence: "monthly", due_day_of_period: 18 });
+    await ensure(conn, "task_templates", { name: "Monthly MIS Pack" }, { service_id: rep, recurrence: "monthly", due_day_of_period: 25 });
     const templateItems: [string, string[], boolean][] = [
       ["Bank reconciliations", ["Statements received for every account", "Unreconciled items explained"], true],
       ["Sales register posting", ["Sales export received", "Invoices posted and tied to GSTR-1"], true],
@@ -119,8 +145,30 @@ async function main() {
       ["Management accounts pack", ["P&L and balance sheet drafted", "Variances commented"], true],
     ];
     for (const [k, [title, checklist, visible]] of templateItems.entries()) {
-      await ins(conn, "task_template_items", { template_id: bookkeepingTpl, title, checklist: JSON.stringify(checklist), client_visible: visible, sort_order: k + 1 });
+      await ensure(conn, "task_template_items", { template_id: bookkeepingTpl, title }, { checklist: JSON.stringify(checklist), client_visible: visible, sort_order: k + 1 });
     }
+
+    // ── JournL modules (same list as migration 011; restores them if a previous seed truncated them) ──
+    const journlModules: [string, string, number, string, string][] = [
+      ["sales", "Sales", 10, "configurable", "14,15,12,18"],
+      ["purchases", "Purchases", 20, "configurable", "16,17,11"],
+      ["expenses", "Expenses", 30, "configurable", "20"],
+      ["accounting", "Accounting & Ledgers", 40, "configurable", "1,2,13,26,31"],
+      ["customers", "Customers", 50, "configurable", "3"],
+      ["vendors", "Vendors", 60, "configurable", "4"],
+      ["banking", "Banking", 70, "configurable", "2,26,43"],
+      ["inventory", "Inventory", 80, "configurable", "8,19,28,29"],
+      ["gst", "GST & Tax", 90, "configurable", "39,40"],
+      ["financial_reports", "Financial Reports", 100, "configurable", "21,22,23,30,36,37"],
+      ["settings", "Settings / Administration", 110, "restricted", "32,33,34,35"],
+    ];
+    for (const [module_key, label, sort_order, default_policy, journl_module_id] of journlModules) {
+      await insIgnore(conn, "journl_modules", { module_key, label, sort_order, default_policy, journl_module_id, verified_at: new Date() });
+    }
+    await conn.query(
+      `INSERT IGNORE INTO journl_module_actions (module_key, action_key, label, journl_action_id, verified_at)
+         SELECT module_key, 'view', 'View (read-only)', 'view', UTC_TIMESTAMP() FROM journl_modules`,
+    );
 
     // ── Clients ──
     const clientDefs = [
@@ -180,6 +228,17 @@ async function main() {
       await ins(conn, "assignments", { client_id: clientId, user_id: bookkeeper, team_role: "bookkeeper", valid_from: dayOf(period(-6), 1), journl_access: software === "journl" });
       await ins(conn, "assignments", { client_id: clientId, user_id: reviewer, team_role: "finance_manager", valid_from: dayOf(period(-6), 1) });
       if (i === 0) await ins(conn, "assignments", { client_id: clientId, user_id: sneha, team_role: "cfo", valid_from: dayOf(period(-6), 1) });
+
+      // Client portal logins for ABC Traders: an owner (can approve) and a member. Demo password: 12345678.
+      if (i === 0) {
+        const clientHash = await bcrypt.hash("12345678", 12);
+        const clientUser = (email: string, full_name: string, portal_role: string, phone: string) =>
+          ins(conn, "users", { email, full_name, portal_role, phone, password_hash: clientHash, status: "active" });
+        const owner = await clientUser("owner@abctraders.in", "Anil Thomas", "client_owner", "+91 94470 12345");
+        const member = await clientUser("accounts@abctraders.in", "Deepa Varghese", "client_member", "+91 94470 67890");
+        await ins(conn, "client_users", { client_id: clientId, user_id: owner, role: "owner", can_approve: true });
+        await ins(conn, "client_users", { client_id: clientId, user_id: member, role: "member", can_approve: false });
+      }
 
       // Last period: all approved and closed. Current period: a mix of states.
       const titles = ["Bank reconciliation", "Sales register posting", "GST output tax review", "Month-end accruals"];
@@ -256,13 +315,13 @@ async function main() {
     await conn.query(`UPDATE audit_logs a JOIN users u ON u.id = a.actor_id SET a.actor_email = u.email WHERE a.actor_email IS NULL`);
     await ins(conn, "audit_logs", { actor_id: admin, actor_email: "admin@accountanz.in", actor_role: "super_admin", action: "Workspace seeded", entity_type: "AppSetting", entity_id: "1", details: "Demo data loaded" });
 
-    const kb = (title: string, category: string, summary: string, body: string) => ins(conn, "knowledge_articles", { title, category, summary, body, updated_by: admin });
+    const kb = (title: string, category: string, summary: string, body: string) => ensure(conn, "knowledge_articles", { title }, { category, summary, body, updated_by: admin });
     await kb("Submitting a task for review", "Task workflow", "What a bookkeeper must check before hitting Submit for review.", "Every checklist item on the task must be ticked, supporting documents attached, and time logged.");
     await kb("Month-end close: the standard order", "Month-end", "The order we work through a client's month, and who signs off on each step.", "1. All tasks for the period approved.\n2. Reports prepared and approved.\n3. Finance manager closes the period.");
     await kb("Rejecting a client document", "Documents", "Always give a reason the client can act on.", "When a document is unusable, reject it with a short note telling the client exactly what to resend.");
   });
 
-  logger.info("Seed complete. Sign in as admin@accountanz.in with SEED_PASSWORD.");
+  logger.info("Seed complete. Master data kept; client data reseeded. Sign in as admin@accountanz.in.");
   await pool.end();
 }
 
