@@ -349,6 +349,45 @@ async function main() {
       await ins(conn, "audit_logs", { actor_id: reviewer, actor_email: null, actor_role: "finance_manager", client_id: clientId, action: "Period closed", entity_type: "PeriodClosing", entity_id: prev, details: `${prev} closed for ${trade_name}` });
     }
 
+    // ── Workspace: seeded once (kept between runs, client links re-pointed later) ──
+    const spaceId = await ins(conn, "project_spaces", {
+      space_key: "ACC",
+      name: "Accountanz Workspace",
+      description: "Primary workspace for Accountanz team project tracking",
+      template: "kanban",
+      client_id: null,
+      next_item_number: 1,
+      created_by: admin,
+    });
+    await ins(conn, "project_space_members", {
+      space_id: spaceId,
+      user_id: admin,
+      role: "admin",
+      added_by: admin,
+    });
+    const statuses = ["Backlog", "In Progress", "Review", "Done"] as const;
+    for (const [idx, name] of statuses.entries()) {
+      await ins(conn, "project_statuses", { space_id: spaceId, name, category: idx < 2 ? "in_progress" : "done", position: idx });
+    }
+    await ins(conn, "project_sprints", {
+      space_id: spaceId,
+      name: "Sprint 1",
+      goal: "Initial setup and core bookkeeping",
+      start_date: dayOf(period(-3), 1),
+      end_date: dayOf(period(0), 1),
+      status: "active",
+    });
+    await ins(conn, "project_items", {
+      space_id: spaceId,
+      number: 1,
+      type: "task",
+      title: "Set up chart of accounts",
+      description: "Configure accounts and tax categories",
+      status_id: (await query<{ id: number }>(`SELECT id FROM project_statuses WHERE space_id = ? ORDER BY position LIMIT 1`, [spaceId], conn))[0].id,
+      assignee_id: vikram,
+      reporter_id: admin,
+      priority: "high",
+    });
     // Re-point Workspace client links at the reseeded clients (same legal name); a client that no longer exists is unlinked.
     for (const link of workspaceClientLinks) {
       await execute(
