@@ -3,7 +3,9 @@ import type { Request, Response } from "express";
 import type { IdParam } from "../../middleware/validate.js";
 import type { StoredFile } from "../../utils/file-storage.js";
 import * as service from "./client-portal.service.js";
+import * as clientService from "../clients/client.service.js";
 import type { ClientContext } from "./client-portal.types.js";
+import type { ClientUpdateInput } from "../clients/client.validation.js";
 import type { ConnectJournlInput, UploadMeta } from "./client-portal.validation.js";
 
 /** Set by the router's context middleware: the signed-in user's company. */
@@ -66,6 +68,15 @@ export const startThread = async (req: Request, res: Response) => void res.statu
 export const reply = async (req: Request, res: Response) => void res.status(201).json(await service.reply(req.user!, ctx(res), idOf(res), req.body.body, req.body.mentions));
 export const mentionable = async (req: Request, res: Response) => void res.json({ items: await service.getMentionable(req.user!, ctx(res)) });
 export const updateSettings = async (req: Request, res: Response) => void res.json(await service.updateSettings(ctx(res), req.body));
+
+export async function updateClient(req: Request, res: Response) {
+  const c = ctx(res);
+  const body = req.body as Partial<ClientUpdateInput> & { status?: string; accounting_software?: string };
+  delete body.status;
+  delete body.accounting_software;
+  await clientService.updateClient(req.user!, c.clientId, body);
+  res.json(await service.getBusiness(c));
+}
 
 export const packages = async (_req: Request, res: Response) => void res.json(await service.getPackages(ctx(res)));
 export const proposal = async (_req: Request, res: Response) => void res.json({ proposal: await service.getProposal(ctx(res)) });

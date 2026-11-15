@@ -1,7 +1,7 @@
 import type { PoolConnection } from "mysql2/promise";
 import { execute, query, queryOne } from "../../database/connection.js";
 import { activeAssignmentSql } from "../access/client-access.js";
-import type { AssignmentGates, CatalogModule, ModuleGrant, ModulePolicy } from "./permission.types.js";
+import type { AssignmentGates, CatalogModule, GrantSource, ModuleGrant, ModulePolicy } from "./permission.types.js";
 
 interface ModuleDbRow {
   module_key: string;
@@ -44,11 +44,11 @@ const parseActions = (value: unknown): string[] => {
   return Array.isArray(parsed) ? parsed.filter((a): a is string => typeof a === "string") : [];
 };
 
-type GrantDbRow = Omit<ModuleGrant, "allowed_actions"> & { allowed_actions: unknown };
+type GrantDbRow = Omit<ModuleGrant, "allowed_actions" | "grant_source"> & { allowed_actions: unknown; grant_source: GrantSource };
 
 export async function grants(assignmentId: number, db?: PoolConnection): Promise<ModuleGrant[]> {
   const rows = await query<GrantDbRow>(
-    `SELECT p.module_key, p.allowed_actions, p.status, u.full_name AS granted_by_name, p.granted_at, p.revoked_at
+    `SELECT p.module_key, p.grant_source, p.allowed_actions, p.status, u.full_name AS granted_by_name, p.granted_at, p.revoked_at
        FROM assignment_module_permissions p LEFT JOIN users u ON u.id = p.granted_by WHERE p.assignment_id = ?`,
     [assignmentId],
     db,
@@ -56,30 +56,40 @@ export async function grants(assignmentId: number, db?: PoolConnection): Promise
   return rows.map((r) => ({ ...r, allowed_actions: parseActions(r.allowed_actions) }));
 }
 
-export async function lockGrant(assignmentId: number, moduleKey: string, conn: PoolConnection) {
+export async function grantsBySource(assignmentId: number, grantSource: GrantSource, db?: PoolConnection): Promise<ModuleGrant[]> {
+  const rows = await query<GrantDbRow>(
+    `SELECT p.module_key, p.grant_source, p.allowed_actions, p.status, u.full_name AS granted_by_name, p.granted_at, p.revoked_at
+       FROM assignment_module_permissions p LEFT JOIN users u ON u.id = p.granted_by WHERE p.assignment_id = ? AND p.grant_source = ?`,
+    [assignmentId, grantSource],
+    db,
+  );
+  return rows.map((r) => ({ ...r, allowed_actions: parseActions(r.allowed_actions) }));
+}
+
+export async function lockGrant(assignmentId: number, moduleKey: string, grantSource: GrantSource, conn: PoolConnection) {
   const row = await queryOne<{ allowed_actions: unknown; status: "active" | "revoked" }>(
-    `SELECT allowed_actions, status FROM assignment_module_permissions WHERE assignment_id = ? AND module_key = ? FOR UPDATE`,
-    [assignmentId, moduleKey],
+    `SELECT allowed_actions, status FROM assignment_module_permissions WHERE assignment_id = ? AND module_key = ? AND grant_source = ? FOR UPDATE`,
+    [assignmentId, moduleKey, grantSource],
     conn,
   );
   return row && { status: row.status, allowed_actions: parseActions(row.allowed_actions) };
 }
 
-export async function upsertGrant(assignmentId: number, moduleKey: string, actions: string[], actorId: number, conn: PoolConnection) {
+export async function upsertGrant(assignmentId: number, moduleKey: string, grantSource: GrantSource, actions: string[], actorId: number, conn: PoolConnection) {
   await execute(
-    `INSERT INTO assignment_module_permissions (assignment_id, module_key, allowed_actions, status, granted_by, granted_at)
-     VALUES (?, ?, ?, 'active', ?, UTC_TIMESTAMP())
+    `INSERT INTO assignment_module_permissions (assignment_id, module_key, grant_source, allowed_actions, status, granted_by, granted_at)
+     VALUES (?, ?, ?, ?, 'active', ?, UTC_TIMESTAMP())
      ON DUPLICATE KEY UPDATE allowed_actions = VALUES(allowed_actions), status = 'active', granted_by = VALUES(granted_by),
        granted_at = VALUES(granted_at), revoked_by = NULL, revoked_at = NULL`,
-    [assignmentId, moduleKey, JSON.stringify(actions), actorId],
+    [assignmentId, moduleKey, grantSource, JSON.stringify(actions), actorId],
     conn,
   );
 }
 
-export async function revokeGrant(assignmentId: number, moduleKey: string, actorId: number, conn: PoolConnection) {
+export async function revokeGrant(assignmentId: number, moduleKey: string, grantSource: GrantSource, actorId: number, conn: PoolConnection) {
   await execute(
-    `UPDATE assignment_module_permissions SET status = 'revoked', revoked_by = ?, revoked_at = UTC_TIMESTAMP() WHERE assignment_id = ? AND module_key = ?`,
-    [actorId, assignmentId, moduleKey],
+    `UPDATE assignment_module_permissions SET status = 'revoked', revoked_by = ?, revoked_at = UTC_TIMESTAMP() WHERE assignment_id = ? AND module_key = ? AND grant_source = ?`,
+    [actorId, assignmentId, moduleKey, grantSource],
     conn,
   );
 }

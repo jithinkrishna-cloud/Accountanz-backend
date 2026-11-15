@@ -24,8 +24,11 @@ export interface Catalog {
   modules: CatalogModule[];
 }
 
+export type GrantSource = "accountanz" | "client";
+
 export interface ModuleGrant {
   module_key: string;
+  grant_source: GrantSource;
   allowed_actions: string[];
   status: "active" | "revoked";
   granted_by_name: string | null;
@@ -49,6 +52,8 @@ export interface ModuleAccess {
   default_policy: ModulePolicy;
   verified: boolean;
   grant: ModuleGrant | null;
+  /** The client's own grant for this module (client-set ceiling; JournL enforces this side). */
+  client_grant: ModuleGrant | null;
   /** Granted actions that pass every Accountanz gate; JournL still applies the client's grant. */
   effective_actions: string[];
   /** Why granted actions don't take effect, when they don't. */

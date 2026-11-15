@@ -5,7 +5,7 @@ import { AppError } from "../../utils/app-error.js";
 import { recordAudit } from "../audit/audit.service.js";
 import { lockAssignment } from "../assignments/assignment.repository.js";
 import * as repo from "./permission.repository.js";
-import type { AssignmentGates, AssignmentPermissions, Catalog, CatalogModule, ModuleAccess, ModuleGrant } from "./permission.types.js";
+import type { AssignmentGates, AssignmentPermissions, Catalog, CatalogModule, GrantSource, ModuleAccess, ModuleGrant } from "./permission.types.js";
 
 /** Unverified catalogue entries are usable outside production only, so nothing unconfirmed reaches real JournL access. */
 const ALLOW_UNVERIFIED = !isProd;
@@ -21,10 +21,13 @@ export async function catalog(): Promise<Catalog> {
 
 /**
  * The single owner of "what may this assignment do in JournL, as far as Accountanz decides". Effective access is
- * the client's grant (JournL) ∩ these effective actions; JournL enforces the client side.
+ * the accountanz grant ∩ the client's grant (JournL enforces the client side).
  */
-function moduleAccess(m: CatalogModule, grant: ModuleGrant | null, g: AssignmentGates): ModuleAccess {
-  const granted = grant?.status === "active" ? grant.allowed_actions : [];
+function moduleAccess(m: CatalogModule, accountanzGrant: ModuleGrant | null, clientGrant: ModuleGrant | null, g: AssignmentGates): ModuleAccess {
+  const accountanzActions = accountanzGrant?.status === "active" ? accountanzGrant.allowed_actions : [];
+  const clientActions = clientGrant?.status === "active" ? clientGrant.allowed_actions : [];
+  // Effective = accountanz's allowance ∩ client's allowance
+  const granted = accountanzActions.filter((a) => clientActions.includes(a));
   const blocked_reason = !granted.length
     ? null
     : m.default_policy === "restricted"
@@ -44,7 +47,8 @@ function moduleAccess(m: CatalogModule, grant: ModuleGrant | null, g: Assignment
     label: m.label,
     default_policy: m.default_policy,
     verified: m.verified,
-    grant,
+    grant: accountanzGrant ?? clientGrant ?? null,
+    client_grant: clientGrant,
     effective_actions: gatesOpen ? granted.filter((a) => usable(m, a)) : [],
     blocked_reason,
   };
@@ -54,11 +58,16 @@ export async function assignmentPermissions(assignmentId: number): Promise<Assig
   const g = await repo.gates(assignmentId);
   if (!g) throw AppError.notFound("Assignment");
   const [modules, grants] = await Promise.all([repo.catalog(), repo.grants(assignmentId)]);
+  const bySource = (src: GrantSource) => grants.filter((x) => x.grant_source === src);
+  const accountanzByKey = new Map(bySource("accountanz").map((x) => [x.module_key, x]));
+  const clientByKey = new Map(bySource("client").map((x) => [x.module_key, x]));
   return {
     ...g,
     client_grant: "unknown",
     allow_unverified: ALLOW_UNVERIFIED,
-    modules: modules.map((m) => moduleAccess(m, grants.find((x) => x.module_key === m.module_key) ?? null, g)),
+    modules: modules.map((m) =>
+      moduleAccess(m, accountanzByKey.get(m.module_key) ?? null, clientByKey.get(m.module_key) ?? null, g),
+    ),
   };
 }
 
@@ -69,11 +78,11 @@ export async function myClientPermissions(actor: AuthUser, clientId: number) {
 }
 
 /**
- * Sets the actions an assignment may use in one module; an empty list revokes. Admin-only (admin routes).
+ * Sets the actions an assignment may use in one module for a given grant source; an empty list revokes.
  * Actions must exist in the catalogue, restricted modules can't be granted, and in production only verified
  * modules and actions can be granted.
  */
-export async function setModulePermission(actor: AuthUser, assignmentId: number, moduleKey: string, actions: string[]) {
+export async function setModulePermission(actor: AuthUser, assignmentId: number, moduleKey: string, actions: string[], grantSource: GrantSource = "accountanz") {
   await withTransaction(async (conn) => {
     const a = await lockAssignment(assignmentId, conn);
     if (!a) throw AppError.notFound("Assignment");
@@ -88,11 +97,11 @@ export async function setModulePermission(actor: AuthUser, assignmentId: number,
     if (unique.length && m.default_policy === "restricted") throw AppError.conflict(`${m.label} is restricted and can't be granted`);
     if (unique.some((x) => !usable(m, x))) throw AppError.conflict(`${m.label} isn't verified against JournL yet, so it can't be granted in production`);
 
-    const existing = await repo.lockGrant(assignmentId, moduleKey, conn);
+    const existing = await repo.lockGrant(assignmentId, moduleKey, grantSource, conn);
     const before = existing?.status === "active" ? existing.allowed_actions : [];
     if (before.length === unique.length && before.every((x) => unique.includes(x))) return;
-    if (unique.length) await repo.upsertGrant(assignmentId, moduleKey, unique, actor.id, conn);
-    else await repo.revokeGrant(assignmentId, moduleKey, actor.id, conn);
+    if (unique.length) await repo.upsertGrant(assignmentId, moduleKey, grantSource, unique, actor.id, conn);
+    else await repo.revokeGrant(assignmentId, moduleKey, grantSource, actor.id, conn);
     await recordAudit(
       actor,
       {
@@ -100,7 +109,7 @@ export async function setModulePermission(actor: AuthUser, assignmentId: number,
         entityType: "Assignment",
         entityId: assignmentId,
         clientId: a.client_id,
-        details: `${m.label}: ${before.join(", ") || "none"} → ${unique.join(", ") || "none"}${m.verified ? "" : " (mapped, not verified against JournL)"}`,
+        details: `${m.label} [${grantSource}]: ${before.join(", ") || "none"} → ${unique.join(", ") || "none"}${m.verified ? "" : " (mapped, not verified against JournL)"}`,
       },
       conn,
     );

@@ -13,7 +13,8 @@ export async function forAssignment(_req: Request, res: Response) {
 
 export async function setModule(req: Request, res: Response) {
   const p = res.locals.params as ModulePermissionParams;
-  res.json(await service.setModulePermission(req.user!, p.id, p.moduleKey, (req.body as ModulePermissionBody).actions));
+  const body = req.body as ModulePermissionBody & { grantSource?: "accountanz" | "client" };
+  res.json(await service.setModulePermission(req.user!, p.id, p.moduleKey, body.actions, body.grantSource));
 }
 
 export const overview = async (_req: Request, res: Response) => void res.json(await service.accessOverview());
