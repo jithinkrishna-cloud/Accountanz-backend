@@ -7,6 +7,7 @@ import * as clientService from "../clients/client.service.js";
 import type { ClientContext } from "./client-portal.types.js";
 import type { ClientUpdateInput } from "../clients/client.validation.js";
 import type { ConnectJournlInput, UploadMeta } from "./client-portal.validation.js";
+import { AppError } from "../../utils/app-error.js";
 
 /** Set by the router's context middleware: the signed-in user's company. */
 const ctx = (res: Response) => res.locals.client as ClientContext;
@@ -71,10 +72,21 @@ export const updateSettings = async (req: Request, res: Response) => void res.js
 
 export async function updateClient(req: Request, res: Response) {
   const c = ctx(res);
-  const body = req.body as Partial<ClientUpdateInput> & { status?: string; accounting_software?: string };
-  delete body.status;
-  delete body.accounting_software;
-  await clientService.updateClient(req.user!, c.clientId, body);
+  const raw = req.body as Record<string, unknown>;
+  // Strip protected fields the client must not change
+  delete raw.status;
+  delete raw.accounting_software;
+  // Convert empty strings to undefined so they're treated as "not provided"
+  const sanitized: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (v === "" || v === undefined || v === null) continue;
+    sanitized[k] = v;
+  }
+  if (Object.keys(sanitized).length === 0) throw new AppError("VALIDATION_ERROR", "Nothing to update");
+  if (sanitized.legal_name && String(sanitized.legal_name).trim().length < 2) {
+    throw new AppError("VALIDATION_ERROR", "Enter the legal name", { fieldErrors: { legal_name: ["Enter the legal name"] } });
+  }
+  await clientService.updateClient(req.user!, c.clientId, sanitized as ClientUpdateInput);
   res.json(await service.getBusiness(c));
 }
 

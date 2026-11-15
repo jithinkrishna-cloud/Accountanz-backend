@@ -7,7 +7,6 @@ import { CLIENT_ROLES } from "../../types/auth.types.js";
 import * as c from "./client-portal.controller.js";
 import { requireContext } from "./client-portal.service.js";
 import { approvalDecisionSchema, connectJournlSchema, meetingRequestSchema, newThreadSchema, replySchema, settingsSchema, tasksQuerySchema, uploadMetaSchema } from "./client-portal.validation.js";
-import { clientUpdateSchema } from "../clients/client.validation.js";
 import { catalog as jlCatalog, team as jlTeam, setModule as jlSetModule } from "./journl-client-permission.controller.js";
 import { modulePermissionBody, modulePermissionParams } from "../journl-permissions/permission.validation.js";
 
@@ -55,7 +54,7 @@ clientPortalRoutes.post("/proposal/accept", c.acceptProposal);
 clientPortalRoutes.post("/packages/:id/choose", validate({ params: idParam }), c.choosePackage);
 clientPortalRoutes.get("/settings", c.settings);
 clientPortalRoutes.patch("/settings", validate({ body: settingsSchema }), c.updateSettings);
-clientPortalRoutes.patch("/client", validate({ body: clientUpdateSchema }), c.updateClient);
+clientPortalRoutes.patch("/client", c.updateClient);
 clientPortalRoutes.get("/journl-permissions/catalog", jlCatalog);
 clientPortalRoutes.get("/journl-permissions/team", jlTeam);
 clientPortalRoutes.put(
