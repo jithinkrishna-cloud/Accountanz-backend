@@ -249,7 +249,7 @@ async function main() {
           client_id: clientId, financial_year_start_month: 4,
           annual_turnover: (5 + i * 3) * 1_000_000, monthly_transaction_volume: 300 + i * 70,
           employee_count: 8 + i * 4, monthly_invoice_count: 60 + i * 15,
-          current_accounting_software: software === "journl" ? "Journl" : "Spreadsheets",
+          current_accounting_software: software === "journl" ? "JournL" : "Spreadsheets",
         });
       }
 
