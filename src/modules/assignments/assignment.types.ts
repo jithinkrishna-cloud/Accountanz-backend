@@ -31,6 +31,7 @@ export interface AssignmentRow {
 }
 
 export interface AssignmentOptions {
-  staff: { user_id: number; full_name: string; email: string; portal_role: string; verification_status: string }[];
+  /** expertise and active_clients help pick someone: search by skill, see who is busy. */
+  staff: { user_id: number; full_name: string; email: string; portal_role: string; verification_status: string; expertise: string[]; active_clients: number }[];
   clients: { id: number; name: string; status: string }[];
 }

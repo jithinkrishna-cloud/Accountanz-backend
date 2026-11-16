@@ -29,6 +29,7 @@ import { taskTemplateRoutes } from "./task-templates/task-template.routes.js";
 import { taskRoutes } from "./tasks/task.routes.js";
 import { teamRoutes } from "./teams/team.routes.js";
 import { workspaceRoutes } from "./workspace/workspace.routes.js";
+import { accountantRequestAdminRoutes } from "./accountant-requests/accountant-request.routes.js";
 
 /** Everything under /api/admin requires a signed-in super_admin or ops_admin. */
 export const adminRoutes = Router();
@@ -37,6 +38,7 @@ adminRoutes.use(authenticate, authorize(...ADMIN_ROLES));
 adminRoutes.use("/dashboard", dashboardRoutes);
 adminRoutes.use("/clients", clientRoutes);
 adminRoutes.use("/onboarding", onboardingRoutes);
+adminRoutes.use("/accountant-requests", accountantRequestAdminRoutes);
 adminRoutes.use("/engagements", engagementRoutes);
 adminRoutes.use("/services", serviceRoutes);
 adminRoutes.use("/packages", packageRoutes);

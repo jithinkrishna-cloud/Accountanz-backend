@@ -409,3 +409,41 @@ export function teamMessageEmail(d: { recipientName: string; clientName: string;
     text: plainText(`Hi ${d.recipientName},`, `${d.author} wrote about "${d.subject}":`, d.body, `Open: ${url}`),
   };
 }
+
+/** A client asked for a specific accountant from the portal's Explore section: to the admins. */
+export function accountantRequestedEmail(d: { recipientName: string; clientName: string; requester: string; accountant: string; kind: string; message: string; preferredStart: string | null }): EmailContent {
+  const url = appUrl("/admin/accountant-requests");
+  return {
+    subject: `${d.clientName} asked for ${d.accountant}`,
+    html: layout({
+      title: `${d.clientName} asked for an accountant`,
+      preheader: `${d.requester} would like ${d.accountant}`,
+      body:
+        paragraph(`Hi ${d.recipientName},`) +
+        paragraph(`${d.requester} from ${d.clientName} asked for ${d.accountant}. Approve or decline it from Accountant Requests.`) +
+        facts([["Accountant", d.accountant], ["Request", d.kind], ["Preferred start", formatDate(d.preferredStart) ?? "Not given"]]) +
+        quote(d.message) +
+        button("Open accountant requests", url),
+    }),
+    text: plainText(`Hi ${d.recipientName},`, `${d.requester} from ${d.clientName} asked for ${d.accountant} (${d.kind}).`, d.message, `Accountant Requests: ${url}`),
+  };
+}
+
+/** Accountanz approved or declined a client's accountant request: to the person who asked. */
+export function accountantRequestDecidedEmail(d: { recipientName: string; accountant: string; decision: "approved" | "declined"; note: string | null; decidedBy: string }): EmailContent {
+  const url = appUrl("/app/explore");
+  const approved = d.decision === "approved";
+  return {
+    subject: approved ? `Your request for ${d.accountant} was approved` : `About your request for ${d.accountant}`,
+    html: layout({
+      title: approved ? `${d.accountant} is coming on board` : `About your request for ${d.accountant}`,
+      preheader: `${d.decidedBy} replied to your request`,
+      body:
+        paragraph(`Hi ${d.recipientName},`) +
+        paragraph(approved ? `${d.decidedBy} approved your request. We'll add ${d.accountant} to your accounting team and let you know when they start.` : `${d.decidedBy} couldn't arrange ${d.accountant} this time.`) +
+        (d.note ? quote(d.note) : "") +
+        button("Open Explore", url),
+    }),
+    text: plainText(`Hi ${d.recipientName},`, approved ? `Your request for ${d.accountant} was approved.` : `Your request for ${d.accountant} was declined.`, d.note ?? "", `Explore: ${url}`),
+  };
+}

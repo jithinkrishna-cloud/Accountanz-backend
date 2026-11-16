@@ -1,3 +1,4 @@
+import { activeAssignmentSql } from "../access/client-access.js";
 import type { PoolConnection } from "mysql2/promise";
 import { execute, pool, query, queryOne, type Param } from "../../database/connection.js";
 import { offsetOf, type Paged } from "../../utils/pagination.js";
@@ -129,12 +130,24 @@ export async function endAssignment(id: number, replacedBy: number | null, db: D
   );
 }
 
+const parseExpertise = (v: unknown): string[] => {
+  if (Array.isArray(v)) return v.map(String);
+  try {
+    const p = typeof v === "string" ? JSON.parse(v) : null;
+    return Array.isArray(p) ? p.map(String) : [];
+  } catch {
+    return [];
+  }
+};
+
 export async function options(): Promise<AssignmentOptions> {
   const [staff, clients] = await Promise.all([
     query<AssignmentOptions["staff"][number]>(
-      `SELECT u.id AS user_id, u.full_name, u.email, u.portal_role, sp.verification_status FROM users u JOIN staff_profiles sp ON sp.user_id = u.id
+      `SELECT u.id AS user_id, u.full_name, u.email, u.portal_role, sp.verification_status, sp.expertise,
+              (SELECT COUNT(DISTINCT a.client_id) FROM assignments a WHERE a.user_id = u.id AND ${activeAssignmentSql("a")}) AS active_clients
+         FROM users u JOIN staff_profiles sp ON sp.user_id = u.id
         WHERE u.status = 'active' AND sp.staff_type = 'accountant' ORDER BY u.full_name`,
-    ),
+    ).then((rows) => rows.map((r) => ({ ...r, expertise: parseExpertise(r.expertise), active_clients: Number(r.active_clients) }))),
     query<AssignmentOptions["clients"][number]>(
       `SELECT id, COALESCE(trade_name, legal_name) AS name, status FROM clients WHERE status <> 'exited' ORDER BY name`,
     ),

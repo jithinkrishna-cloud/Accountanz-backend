@@ -6,6 +6,7 @@ import { idParam, validate } from "../../middleware/validate.js";
 import { CLIENT_ROLES } from "../../types/auth.types.js";
 import * as c from "./client-portal.controller.js";
 import { requireContext } from "./client-portal.service.js";
+import { exploreRoutes } from "../accountant-requests/accountant-request.routes.js";
 import { approvalDecisionSchema, connectJournlSchema, meetingRequestSchema, newThreadSchema, portalClientUpdateSchema, replySchema, settingsSchema, tasksQuerySchema, uploadMetaSchema } from "./client-portal.validation.js";
 import { activity as jlActivity, catalog as jlCatalog, team as jlTeam, setModule as jlSetModule } from "./journl-client-permission.controller.js";
 import { modulePermissionBody, modulePermissionParams } from "../journl-permissions/permission.validation.js";
@@ -22,6 +23,7 @@ export const clientPortalRoutes = Router();
 clientPortalRoutes.use(authenticate, authorize(...CLIENT_ROLES));
 clientPortalRoutes.get("/context", c.context);
 clientPortalRoutes.use(withClient);
+clientPortalRoutes.use(exploreRoutes);
 
 clientPortalRoutes.get("/dashboard", c.dashboard);
 clientPortalRoutes.get("/business", c.business);
