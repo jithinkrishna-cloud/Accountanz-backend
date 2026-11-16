@@ -29,7 +29,10 @@ export interface ViewRows {
 }
 export interface JournlView {
   key: string;
+  /** The staff workspace page (area) the view appears on. */
   module: string;
+  /** The JournL feature permission (journl_modules.module_key) a person needs to read this view. */
+  feature: string;
   label: string;
   /** Whether the date range applies (lists of masters ignore it). */
   usesPeriod: boolean;
@@ -58,10 +61,11 @@ const VOUCHER_COLUMNS: Column[] = [
   { key: "amount", label: "Amount", kind: "money" },
 ];
 
-function voucherView(key: string, module: string, label: string, primaryVoucherTypeId: number): JournlView {
+function voucherView(key: string, module: string, feature: string, label: string, primaryVoucherTypeId: number): JournlView {
   return {
     key,
     module,
+    feature,
     label,
     usesPeriod: true,
     columns: VOUCHER_COLUMNS,
@@ -102,10 +106,11 @@ const PARTY_COLUMNS: Column[] = [
   { key: "balance", label: "Closing balance", kind: "money" },
 ];
 
-function partyView(key: string, module: string, label: string, path: string): JournlView {
+function partyView(key: string, module: string, feature: string, label: string, path: string): JournlView {
   return {
     key,
     module,
+    feature,
     label,
     usesPeriod: false,
     columns: PARTY_COLUMNS,
@@ -139,10 +144,11 @@ const GST_COLUMNS: Column[] = [
   { key: "value", label: "Invoice value", kind: "money" },
 ];
 
-function gstView(key: string, label: string, path: string): JournlView {
+function gstView(key: string, feature: string, label: string, path: string): JournlView {
   return {
     key,
     module: "gst",
+    feature,
     label,
     usesPeriod: true,
     columns: GST_COLUMNS,
@@ -168,20 +174,21 @@ function gstView(key: string, label: string, path: string): JournlView {
 
 const VIEW_LIST: JournlView[] = [
   // Sales
-  voucherView("sales_invoices", "sales", "Sales invoices", 4),
-  voucherView("credit_notes", "sales", "Credit notes (sales returns)", 5),
-  voucherView("receipts", "sales", "Receipts", 2),
+  voucherView("sales_invoices", "sales", "f_sales", "Sales invoices", 4),
+  voucherView("credit_notes", "sales", "f_sales_return", "Credit notes (sales returns)", 5),
+  voucherView("receipts", "sales", "f_receipt", "Receipts", 2),
   // Purchases
-  voucherView("purchase_bills", "purchases", "Purchase bills", 6),
-  voucherView("debit_notes", "purchases", "Debit notes (purchase returns)", 7),
-  voucherView("payments", "purchases", "Payments", 1),
+  voucherView("purchase_bills", "purchases", "f_purchase", "Purchase bills", 6),
+  voucherView("debit_notes", "purchases", "f_purchase_return", "Debit notes (purchase returns)", 7),
+  voucherView("payments", "purchases", "f_payment", "Payments", 1),
   // Expenses
-  voucherView("expenses", "expenses", "Expense bookings", 10),
+  voucherView("expenses", "expenses", "f_expense_booking", "Expense bookings", 10),
   // Accounting & ledgers
-  voucherView("journals", "accounting", "Journal vouchers", 3),
+  voucherView("journals", "accounting", "f_journal", "Journal vouchers", 3),
   {
     key: "ledgers",
     module: "accounting",
+    feature: "f_general_ledgers",
     label: "General ledgers",
     usesPeriod: false,
     columns: [
@@ -200,6 +207,7 @@ const VIEW_LIST: JournlView[] = [
   {
     key: "ledger_groups",
     module: "accounting",
+    feature: "f_ledger_groups",
     label: "Ledger groups",
     usesPeriod: false,
     columns: [
@@ -218,6 +226,7 @@ const VIEW_LIST: JournlView[] = [
   {
     key: "ledger_statement",
     module: "accounting",
+    feature: "f_ledger_statement",
     label: "Ledger statement",
     usesPeriod: true,
     columns: [
@@ -249,12 +258,14 @@ const VIEW_LIST: JournlView[] = [
     },
   },
   // Customers & vendors
-  partyView("customers", "customers", "Customers", "companyLedgerMaster/customer-ledger"),
-  partyView("vendors", "vendors", "Vendors", "companyLedgerMaster/supplier-ledger"),
+  partyView("customers", "customers", "f_customers", "Customers", "companyLedgerMaster/customer-ledger"),
+  partyView("vendors", "vendors", "f_suppliers", "Vendors", "companyLedgerMaster/supplier-ledger"),
   // Banking
   {
     key: "bank_accounts",
     module: "banking",
+    // Bank accounts are general ledgers under the Bank Accounts group in JournL.
+    feature: "f_general_ledgers",
     label: "Bank accounts",
     usesPeriod: false,
     columns: [
@@ -277,6 +288,7 @@ const VIEW_LIST: JournlView[] = [
   {
     key: "stock_items",
     module: "inventory",
+    feature: "f_stock_items",
     label: "Stock items",
     usesPeriod: false,
     columns: [
@@ -303,17 +315,24 @@ const VIEW_LIST: JournlView[] = [
         })),
       })),
   },
-  voucherView("stock_journals", "inventory", "Stock journals", 9),
+  voucherView("stock_journals", "inventory", "f_stock_journal", "Stock journals", 9),
   // GST & tax
-  gstView("gstr1", "GSTR-1 (outward supplies)", "reports/gst-r1-report"),
-  gstView("gstr2b", "GSTR-2B (inward supplies)", "reports/gst-r2b-report"),
+  gstView("gstr1", "f_gstr1", "GSTR-1 (outward supplies)", "reports/gst-r1-report"),
+  gstView("gstr2b", "f_gstr2b", "GSTR-2B (inward supplies)", "reports/gst-r2b-report"),
 ];
 
-// The bank statement is a ledger statement, but under the Banking grant.
+// The bank statement is a ledger statement (same feature), shown on the Banking page.
 const ledgerStatement = VIEW_LIST.find((v) => v.key === "ledger_statement")!;
 VIEW_LIST.push({ ...ledgerStatement, key: "bank_statement", module: "banking", label: "Bank transactions" });
 
 export const JOURNL_VIEWS: Record<string, JournlView> = Object.fromEntries(VIEW_LIST.map((v) => [v.key, v]));
+
+/** Sections of the Financial Reports page (the live JournL overview) and the feature each needs. */
+export const OVERVIEW_SECTION_FEATURES = {
+  profit_loss: "f_profit_loss",
+  trial_balance: "f_trial_balance",
+  vouchers: "f_day_book",
+} as const;
 
 /** The views shown as tabs for each module (drill-only views are reached from a row). */
 export const MODULE_TABS: Record<string, string[]> = {

@@ -7,7 +7,7 @@ import { CLIENT_ROLES } from "../../types/auth.types.js";
 import * as c from "./client-portal.controller.js";
 import { requireContext } from "./client-portal.service.js";
 import { approvalDecisionSchema, connectJournlSchema, meetingRequestSchema, newThreadSchema, portalClientUpdateSchema, replySchema, settingsSchema, tasksQuerySchema, uploadMetaSchema } from "./client-portal.validation.js";
-import { catalog as jlCatalog, team as jlTeam, setModule as jlSetModule } from "./journl-client-permission.controller.js";
+import { activity as jlActivity, catalog as jlCatalog, team as jlTeam, setModule as jlSetModule } from "./journl-client-permission.controller.js";
 import { modulePermissionBody, modulePermissionParams } from "../journl-permissions/permission.validation.js";
 
 /** Resolves the signed-in user's company once per request; every handler reads only that company. */
@@ -57,6 +57,7 @@ clientPortalRoutes.patch("/settings", validate({ body: settingsSchema }), c.upda
 clientPortalRoutes.patch("/client", validate({ body: portalClientUpdateSchema }), c.updateClient);
 clientPortalRoutes.get("/journl-permissions/catalog", jlCatalog);
 clientPortalRoutes.get("/journl-permissions/team", jlTeam);
+clientPortalRoutes.get("/journl-permissions/assignments/:id/activity", validate({ params: idParam }), jlActivity);
 clientPortalRoutes.put(
   "/journl-permissions/assignments/:id/modules/:moduleKey",
   validate({ params: modulePermissionParams, body: modulePermissionBody }),

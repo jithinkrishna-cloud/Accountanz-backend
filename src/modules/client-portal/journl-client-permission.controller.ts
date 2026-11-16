@@ -17,3 +17,8 @@ export async function setModule(req: Request, res: Response) {
   const body = req.body as ModulePermissionBody;
   res.json(await service.setModulePermission(req.user!, res.locals.client as ClientContext, p.id, p.moduleKey, body.actions));
 }
+
+export async function activity(req: Request, res: Response) {
+  const p = res.locals.params as { id: number };
+  res.json({ items: await service.activity(req.user!, res.locals.client as ClientContext, p.id) });
+}

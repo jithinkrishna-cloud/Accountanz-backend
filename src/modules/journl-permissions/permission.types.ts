@@ -13,6 +13,9 @@ export interface ModuleAction {
 export interface CatalogModule {
   module_key: string;
   label: string;
+  /** The area this JournL feature belongs to (Sales, Purchases, ...): display group and staff workspace page. */
+  group_key: string;
+  group_label: string;
   default_policy: ModulePolicy;
   journl_module_id: string | null;
   /** journl_module_id resolved to JournL feature names (what this module actually opens in JournL). */
@@ -59,6 +62,8 @@ export interface ModuleAccess {
   client_grant: ModuleGrant | null;
   /** Granted actions that pass every Accountanz gate; JournL still applies the client's grant. */
   effective_actions: string[];
+  /** Accountanz's side of the grant (the client's side is client_grant); effective needs both. */
+  accountanz_actions: string[];
   /** Why granted actions don't take effect, when they don't. */
   blocked_reason: string | null;
 }

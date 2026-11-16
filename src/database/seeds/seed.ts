@@ -12,6 +12,7 @@ import { env, isProd } from "../../config/env.js";
 import { logger } from "../../utils/logger.js";
 import { execute, pool, query, withTransaction, type Param } from "../connection.js";
 import { addApprovals, addReports, deleteReportFiles } from "./demo-deliverables.js";
+import { JOURNL_AREAS, JOURNL_FEATURE_LIST } from "../../modules/integrations/journl-features.js";
 
 const ins = async (conn: PoolConnection, table: string, row: Record<string, Param>) => {
   const keys = Object.keys(row);
@@ -171,22 +172,18 @@ async function main() {
       await ensure(conn, "task_template_items", { template_id: bookkeepingTpl, title }, { checklist: JSON.stringify(checklist), client_visible: visible, sort_order: k + 1 });
     }
 
-    // ── JournL modules (same list as migration 011; restores them if a previous seed truncated them) ──
-    const journlModules: [string, string, number, string, string][] = [
-      ["sales", "Sales", 10, "configurable", "14,15,12,18"],
-      ["purchases", "Purchases", 20, "configurable", "16,17,11"],
-      ["expenses", "Expenses", 30, "configurable", "20"],
-      ["accounting", "Accounting & Ledgers", 40, "configurable", "1,2,13,26,31"],
-      ["customers", "Customers", 50, "configurable", "3"],
-      ["vendors", "Vendors", 60, "configurable", "4"],
-      ["banking", "Banking", 70, "configurable", "2,26,43"],
-      ["inventory", "Inventory", 80, "configurable", "8,19,28,29"],
-      ["gst", "GST & Tax", 90, "configurable", "39,40"],
-      ["financial_reports", "Financial Reports", 100, "configurable", "21,22,23,30,36,37"],
-      ["settings", "Settings / Administration", 110, "restricted", "32,33,34,35"],
-    ];
-    for (const [module_key, label, sort_order, default_policy, journl_module_id] of journlModules) {
-      await insIgnore(conn, "journl_modules", { module_key, label, sort_order, default_policy, journl_module_id, verified_at: new Date() });
+    // ── JournL features, one permission each (same list as migration 021; restores them if a previous seed truncated them) ──
+    const areaOrder = Object.fromEntries(JOURNL_AREAS.map((a, i) => [a.key, (i + 1) * 100]));
+    for (const [i, f] of JOURNL_FEATURE_LIST.entries()) {
+      await insIgnore(conn, "journl_modules", {
+        module_key: f.key,
+        label: f.name,
+        group_key: f.area,
+        sort_order: areaOrder[f.area]! + i,
+        default_policy: f.restricted ? "restricted" : "configurable",
+        journl_module_id: String(f.id),
+        verified_at: new Date(),
+      });
     }
     await conn.query(
       `INSERT IGNORE INTO journl_module_actions (module_key, action_key, label, journl_action_id, verified_at)

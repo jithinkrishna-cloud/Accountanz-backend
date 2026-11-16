@@ -1,57 +1,83 @@
 /**
- * JournL's user-permission features, by id: the ids JournL returns as permissionData at login and that
- * journl_modules.journl_module_id lists. Copied from JournL's source (Bizpole-Books-Client
- * src/constants/FeatureIds.ts, newest copy incl. PAYMENT_MODE = 42); JournL has no API that lists them.
- * Names are written for clients and staff, not JournL's constant names. Keep in step with that file.
+ * JournL's user-permission features: the ids JournL returns as permissionData at login. Copied from JournL's source
+ * (Bizpole-Books-Client src/constants/FeatureIds.ts, newest copy incl. PAYMENT_MODE = 42); JournL has no API that
+ * lists them. Keep in step with that file.
+ *
+ * Each feature is its own grantable permission (a row in journl_modules, keyed `f_*`, journl_module_id = its id).
+ * Areas group them for display and are the pages of the staff JournL workspace.
  */
-export const JOURNL_FEATURES: Record<number, string> = {
-  // Masters
-  1: "Ledger Groups",
-  2: "General Ledgers",
-  3: "Customers",
-  4: "Suppliers",
-  5: "Units",
-  6: "Stock Groups",
-  7: "Stock Categories",
-  8: "Stock Items",
-  9: "Voucher Types",
-  10: "Salesmen",
-  42: "Payment Modes",
-  // Vouchers
-  11: "Payment",
-  12: "Receipt",
-  13: "Journal",
-  14: "Sales",
-  15: "Sales Return",
-  16: "Purchase",
-  17: "Purchase Return",
-  18: "Estimate",
-  19: "Stock Journal",
-  20: "Expense Booking",
-  41: "Revoke Bin",
-  // Reports
-  21: "Trial Balance",
-  22: "Profit & Loss",
-  23: "Balance Sheet",
-  24: "Day Book",
-  25: "Customer Frequency",
-  26: "Ledger Statement",
-  27: "Register Reports",
-  28: "Closing Stock",
-  29: "Stock Item Statement",
-  30: "Cash Flow Statement",
-  36: "Payable Ageing",
-  37: "Receivable Ageing",
-  38: "Group Summary",
-  39: "GSTR-1",
-  40: "GSTR-2B",
-  // Settings
-  31: "Chart of Accounts",
-  32: "Users",
-  33: "Branches",
-  34: "Audit Log",
-  35: "Invoice Templates",
-};
+export const JOURNL_AREAS = [
+  { key: "sales", label: "Sales" },
+  { key: "purchases", label: "Purchases" },
+  { key: "expenses", label: "Expenses" },
+  { key: "customers", label: "Customers" },
+  { key: "vendors", label: "Vendors" },
+  { key: "accounting", label: "Accounting & Ledgers" },
+  { key: "inventory", label: "Inventory" },
+  { key: "gst", label: "GST & Tax" },
+  { key: "financial_reports", label: "Financial Reports" },
+  { key: "settings", label: "Settings / Administration" },
+] as const;
+export type JournlAreaKey = (typeof JOURNL_AREAS)[number]["key"];
+export const AREA_LABEL: Record<string, string> = Object.fromEntries(JOURNL_AREAS.map((a) => [a.key, a.label]));
+
+export interface JournlFeatureDef {
+  /** journl_modules.module_key */
+  key: string;
+  /** JournL FeatureIds value */
+  id: number;
+  name: string;
+  area: JournlAreaKey;
+  /** Settings features can't be granted to accountants. */
+  restricted?: boolean;
+}
+
+export const JOURNL_FEATURE_LIST: JournlFeatureDef[] = [
+  { key: "f_sales", id: 14, name: "Sales", area: "sales" },
+  { key: "f_sales_return", id: 15, name: "Sales Return", area: "sales" },
+  { key: "f_receipt", id: 12, name: "Receipt", area: "sales" },
+  { key: "f_estimate", id: 18, name: "Estimate", area: "sales" },
+  { key: "f_salesmen", id: 10, name: "Salesmen", area: "sales" },
+  { key: "f_purchase", id: 16, name: "Purchase", area: "purchases" },
+  { key: "f_purchase_return", id: 17, name: "Purchase Return", area: "purchases" },
+  { key: "f_payment", id: 11, name: "Payment", area: "purchases" },
+  { key: "f_expense_booking", id: 20, name: "Expense Booking", area: "expenses" },
+  { key: "f_customers", id: 3, name: "Customers", area: "customers" },
+  { key: "f_customer_frequency", id: 25, name: "Customer Frequency", area: "customers" },
+  { key: "f_suppliers", id: 4, name: "Suppliers", area: "vendors" },
+  { key: "f_ledger_groups", id: 1, name: "Ledger Groups", area: "accounting" },
+  { key: "f_general_ledgers", id: 2, name: "General Ledgers", area: "accounting" },
+  { key: "f_journal", id: 13, name: "Journal", area: "accounting" },
+  { key: "f_ledger_statement", id: 26, name: "Ledger Statement", area: "accounting" },
+  { key: "f_chart_of_accounts", id: 31, name: "Chart of Accounts", area: "accounting" },
+  { key: "f_voucher_types", id: 9, name: "Voucher Types", area: "accounting" },
+  { key: "f_payment_modes", id: 42, name: "Payment Modes", area: "accounting" },
+  { key: "f_revoke_bin", id: 41, name: "Revoke Bin", area: "accounting" },
+  { key: "f_stock_items", id: 8, name: "Stock Items", area: "inventory" },
+  { key: "f_units", id: 5, name: "Units", area: "inventory" },
+  { key: "f_stock_groups", id: 6, name: "Stock Groups", area: "inventory" },
+  { key: "f_stock_categories", id: 7, name: "Stock Categories", area: "inventory" },
+  { key: "f_stock_journal", id: 19, name: "Stock Journal", area: "inventory" },
+  { key: "f_closing_stock", id: 28, name: "Closing Stock", area: "inventory" },
+  { key: "f_stock_item_statement", id: 29, name: "Stock Item Statement", area: "inventory" },
+  { key: "f_gstr1", id: 39, name: "GSTR-1", area: "gst" },
+  { key: "f_gstr2b", id: 40, name: "GSTR-2B", area: "gst" },
+  { key: "f_trial_balance", id: 21, name: "Trial Balance", area: "financial_reports" },
+  { key: "f_profit_loss", id: 22, name: "Profit & Loss", area: "financial_reports" },
+  { key: "f_balance_sheet", id: 23, name: "Balance Sheet", area: "financial_reports" },
+  { key: "f_cash_flow", id: 30, name: "Cash Flow Statement", area: "financial_reports" },
+  { key: "f_day_book", id: 24, name: "Day Book", area: "financial_reports" },
+  { key: "f_register_reports", id: 27, name: "Register Reports", area: "financial_reports" },
+  { key: "f_group_summary", id: 38, name: "Group Summary", area: "financial_reports" },
+  { key: "f_payable_ageing", id: 36, name: "Payable Ageing", area: "financial_reports" },
+  { key: "f_receivable_ageing", id: 37, name: "Receivable Ageing", area: "financial_reports" },
+  { key: "f_users", id: 32, name: "Users", area: "settings", restricted: true },
+  { key: "f_branches", id: 33, name: "Branches", area: "settings", restricted: true },
+  { key: "f_audit_log", id: 34, name: "Audit Log", area: "settings", restricted: true },
+  { key: "f_invoice_templates", id: 35, name: "Invoice Templates", area: "settings", restricted: true },
+];
+
+const BY_ID = new Map(JOURNL_FEATURE_LIST.map((f) => [f.id, f]));
 
 export interface JournlFeature {
   id: number;
@@ -60,12 +86,15 @@ export interface JournlFeature {
   known: boolean;
 }
 
-/** "14,15,12,18" → named features, in the mapping's order. */
+/** "14,15" → named features, in the mapping's order. */
 export function featuresFor(idsCsv: string | null): JournlFeature[] {
   if (!idsCsv) return [];
   return idsCsv
     .split(",")
     .map((s) => Number(s.trim()))
     .filter((id) => Number.isInteger(id) && id > 0)
-    .map((id) => (JOURNL_FEATURES[id] ? { id, name: JOURNL_FEATURES[id], known: true } : { id, name: `JournL feature #${id}`, known: false }));
+    .map((id) => {
+      const f = BY_ID.get(id);
+      return f ? { id, name: f.name, known: true } : { id, name: `JournL feature #${id}`, known: false };
+    });
 }

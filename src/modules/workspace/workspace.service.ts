@@ -2,7 +2,8 @@ import type { AuthUser } from "../../types/auth.types.js";
 import { AppError } from "../../utils/app-error.js";
 import { clientScope, isAdmin, isClientReviewer, requireClientAccess } from "../access/client-access.js";
 import { getJournlOverview, openJournlSession } from "../integrations/journl-data.service.js";
-import { JOURNL_VIEWS, MODULE_TABS } from "../integrations/journl-views.js";
+import { JOURNL_VIEWS, MODULE_TABS, OVERVIEW_SECTION_FEATURES } from "../integrations/journl-views.js";
+import { JOURNL_FEATURE_LIST } from "../integrations/journl-features.js";
 import type { JournlViewQuery } from "./workspace.validation.js";
 import { assessChecklist, recentPeriods, setStatus as setClosingStatus } from "../closing/closing.service.js";
 import { checklist as closingChecklist, currentStatus } from "../closing/closing.repository.js";
@@ -113,14 +114,31 @@ export async function clientJournlData(actor: AuthUser, clientId: number, period
   }
   const connection = await repo.journlConnection(clientId);
   if (!connection || connection.status !== "connected") throw AppError.conflict("This client hasn't connected JournL yet");
-  return getJournlOverview(connection.id, period);
+  const overview = await getJournlOverview(connection.id, period);
+  // Each report section needs its own JournL feature (Profit & Loss, Trial Balance, Day Book).
+  const features = await readableFeatures(actor, clientId);
+  for (const [section, feature] of Object.entries(OVERVIEW_SECTION_FEATURES) as [keyof typeof OVERVIEW_SECTION_FEATURES, string][]) {
+    if (features.has(feature)) continue;
+    const name = JOURNL_FEATURE_LIST.find((f) => f.key === feature)?.name ?? feature;
+    overview[section] = { data: null, error: `You don't have ${name} access in this client's JournL.` };
+  }
+  return overview;
 }
 
-/** Module keys this person may read in a client's JournL today (all of them for admins). */
-async function readableModules(actor: AuthUser, clientId: number): Promise<string[]> {
-  if (isAdmin(actor)) return Object.keys(MODULE_TABS);
+/** JournL features (journl_modules keys) this person may read in a client's JournL today; every feature for admins. */
+async function readableFeatures(actor: AuthUser, clientId: number): Promise<Set<string>> {
+  if (isAdmin(actor)) return new Set(JOURNL_FEATURE_LIST.map((f) => f.key));
   const perms = await myClientPermissions(actor, clientId);
-  return [...new Set(perms.flatMap((p) => p.modules.filter((m) => m.effective_actions.includes("view")).map((m) => m.module_key)))];
+  return new Set(perms.flatMap((p) => p.modules.filter((m) => m.effective_actions.includes("view")).map((m) => m.module_key)));
+}
+
+/** Workspace pages (areas) and the views on them this person may open: an area shows when any of its views (or report sections) is readable. */
+function readableAreas(features: Set<string>) {
+  const views = Object.values(JOURNL_VIEWS).filter((v) => features.has(v.feature)).map((v) => v.key);
+  const areas = Object.entries(MODULE_TABS)
+    .filter(([area, tabs]) => (area === "financial_reports" ? Object.values(OVERVIEW_SECTION_FEATURES).some((f) => features.has(f)) : tabs.some((t) => views.includes(t))))
+    .map(([area]) => area);
+  return { areas, views };
 }
 
 /**
@@ -131,7 +149,8 @@ export async function journlWorkspace(actor: AuthUser) {
   const clients = await repo.clientOptions(scopeOf(actor));
   const items = await Promise.all(
     clients.map(async (c) => {
-      const [modules, connection] = await Promise.all([readableModules(actor, c.value), repo.journlConnection(c.value)]);
+      const [features, connection] = await Promise.all([readableFeatures(actor, c.value), repo.journlConnection(c.value)]);
+      const { areas, views } = readableAreas(features);
       return {
         client_id: c.value,
         client_name: c.label,
@@ -139,7 +158,9 @@ export async function journlWorkspace(actor: AuthUser) {
         org_id: connection?.external_org_id ?? null,
         org_name: connection?.external_org_name ?? null,
         session_until: connection?.session_until ?? null,
-        modules,
+        modules: areas,
+        /** Tabs this person may open for this client (others on a page are hidden). */
+        views,
       };
     }),
   );
@@ -154,8 +175,9 @@ export async function clientJournlView(actor: AuthUser, clientId: number, viewKe
   await requireClientAccess(actor, clientId);
   const view = JOURNL_VIEWS[viewKey];
   if (!view) throw AppError.notFound("JournL view");
-  if (!(await readableModules(actor, clientId)).includes(view.module)) {
-    throw AppError.forbidden(`You don't have ${view.module.replace("_", " ")} access in this client's JournL. An admin grants it under Assignments → JournL modules.`);
+  if (!(await readableFeatures(actor, clientId)).has(view.feature)) {
+    const name = JOURNL_FEATURE_LIST.find((f) => f.key === view.feature)?.name ?? view.feature;
+    throw AppError.forbidden(`You don't have ${name} access in this client's JournL. It needs both Accountanz's grant and the client's.`);
   }
   const connection = await repo.journlConnection(clientId);
   if (!connection || connection.status !== "connected") throw AppError.conflict("This client hasn't connected JournL yet");

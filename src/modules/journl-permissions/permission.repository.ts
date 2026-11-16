@@ -1,12 +1,13 @@
 import type { PoolConnection } from "mysql2/promise";
 import { execute, query, queryOne } from "../../database/connection.js";
 import { activeAssignmentSql } from "../access/client-access.js";
-import { featuresFor } from "../integrations/journl-features.js";
+import { AREA_LABEL, featuresFor } from "../integrations/journl-features.js";
 import type { AssignmentGates, CatalogModule, GrantSource, ModuleGrant, ModulePolicy } from "./permission.types.js";
 
 interface ModuleDbRow {
   module_key: string;
   label: string;
+  group_key: string;
   default_policy: ModulePolicy;
   journl_module_id: string | null;
   module_verified_at: string | null;
@@ -19,7 +20,7 @@ interface ModuleDbRow {
 /** The catalogue in display order, with each module's configured actions. */
 export async function catalog(db?: PoolConnection, moduleKey?: string): Promise<CatalogModule[]> {
   const rows = await query<ModuleDbRow>(
-    `SELECT m.module_key, m.label, m.default_policy, m.journl_module_id, m.verified_at AS module_verified_at,
+    `SELECT m.module_key, m.label, m.group_key, m.default_policy, m.journl_module_id, m.verified_at AS module_verified_at,
             a.action_key, a.label AS action_label, a.journl_action_id, a.verified_at AS action_verified_at
        FROM journl_modules m LEFT JOIN journl_module_actions a ON a.module_key = m.module_key
       ${moduleKey ? "WHERE m.module_key = ?" : ""}
@@ -31,7 +32,7 @@ export async function catalog(db?: PoolConnection, moduleKey?: string): Promise<
   for (const r of rows) {
     let m = modules.get(r.module_key);
     if (!m) {
-      m = { module_key: r.module_key, label: r.label, default_policy: r.default_policy, journl_module_id: r.journl_module_id, features: featuresFor(r.journl_module_id), verified: r.module_verified_at !== null, actions: [] };
+      m = { module_key: r.module_key, label: r.label, group_key: r.group_key, group_label: AREA_LABEL[r.group_key] ?? r.group_key, default_policy: r.default_policy, journl_module_id: r.journl_module_id, features: featuresFor(r.journl_module_id), verified: r.module_verified_at !== null, actions: [] };
       modules.set(r.module_key, m);
     }
     if (r.action_key) m.actions.push({ action_key: r.action_key, label: r.action_label ?? r.action_key, journl_action_id: r.journl_action_id, verified: r.action_verified_at !== null });

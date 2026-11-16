@@ -50,6 +50,7 @@ function moduleAccess(m: CatalogModule, accountanzGrant: ModuleGrant | null, cli
     grant: accountanzGrant ?? clientGrant ?? null,
     client_grant: clientGrant,
     effective_actions: gatesOpen ? granted.filter((a) => usable(m, a)) : [],
+    accountanz_actions: accountanzActions,
     blocked_reason,
   };
 }
@@ -125,8 +126,32 @@ export async function accessOverview() {
   const [clients, catalogModules] = await Promise.all([repo.accessClients(), repo.catalog()]);
   const assignments = await repo.accessAssignments(clients.map((c) => c.client_id));
   const perms = await Promise.all(assignments.map((a) => assignmentPermissions(a.assignment_id)));
+  // One column per area (Sales, Purchases, ...): with a permission per JournL feature, a column per feature is unreadable.
+  const grantable = catalogModules.filter((m) => m.default_policy !== "restricted");
+  const areas = [...new Map(grantable.map((m) => [m.group_key, m.group_label])).entries()].map(([key, label]) => ({
+    key,
+    label,
+    features: grantable.filter((m) => m.group_key === key).map((m) => ({ id: Number(m.journl_module_id), name: m.label, known: true })),
+  }));
+  const byArea = (mods: ModuleAccess[]) =>
+    Object.fromEntries(
+      areas.map((area) => {
+        const inArea = mods.filter((m) => m.default_policy !== "restricted" && catalogModules.find((c) => c.module_key === m.module_key)?.group_key === area.key);
+        const granted = inArea.filter((m) => m.grant?.status === "active" && m.grant.allowed_actions.length > 0);
+        return [
+          area.key,
+          {
+            granted: granted.length > 0,
+            effective: inArea.some((m) => m.effective_actions.length > 0),
+            reason: granted.find((m) => m.blocked_reason)?.blocked_reason ?? null,
+            granted_count: granted.length,
+            total: inArea.length,
+          },
+        ];
+      }),
+    );
   return {
-    modules: catalogModules.filter((m) => m.default_policy !== "restricted").map((m) => ({ key: m.module_key, label: m.label, journl_features: m.journl_module_id, features: m.features })),
+    modules: areas.map((a) => ({ ...a, journl_features: null })),
     clients: clients.map((c) => ({
       client_id: c.client_id,
       client_name: c.client_name,
@@ -142,11 +167,7 @@ export async function accessOverview() {
           full_name: a.full_name,
           team_role: a.team_role,
           journl_access: p.journl_access,
-          modules: Object.fromEntries(
-            p.modules
-              .filter((m) => m.default_policy !== "restricted")
-              .map((m) => [m.module_key, { granted: m.grant?.status === "active" && m.grant.allowed_actions.length > 0, effective: m.effective_actions.length > 0, reason: m.blocked_reason }]),
-          ),
+          modules: byArea(p.modules),
         })),
     })),
   };
