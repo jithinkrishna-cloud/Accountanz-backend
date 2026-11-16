@@ -6,7 +6,7 @@ import * as service from "./client-portal.service.js";
 import * as clientService from "../clients/client.service.js";
 import type { ClientContext } from "./client-portal.types.js";
 import type { ClientUpdateInput } from "../clients/client.validation.js";
-import type { ConnectJournlInput, UploadMeta } from "./client-portal.validation.js";
+import type { ConnectJournlInput, PortalClientUpdateInput, UploadMeta } from "./client-portal.validation.js";
 import { AppError } from "../../utils/app-error.js";
 
 /** Set by the router's context middleware: the signed-in user's company. */
@@ -72,21 +72,11 @@ export const updateSettings = async (req: Request, res: Response) => void res.js
 
 export async function updateClient(req: Request, res: Response) {
   const c = ctx(res);
-  const raw = req.body as Record<string, unknown>;
-  // Strip protected fields the client must not change
-  delete raw.status;
-  delete raw.accounting_software;
-  // Convert empty strings to undefined so they're treated as "not provided"
-  const sanitized: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(raw)) {
-    if (v === "" || v === undefined || v === null) continue;
-    sanitized[k] = v;
-  }
-  if (Object.keys(sanitized).length === 0) throw new AppError("VALIDATION_ERROR", "Nothing to update");
-  if (sanitized.legal_name && String(sanitized.legal_name).trim().length < 2) {
-    throw new AppError("VALIDATION_ERROR", "Enter the legal name", { fieldErrors: { legal_name: ["Enter the legal name"] } });
-  }
-  await clientService.updateClient(req.user!, c.clientId, sanitized as ClientUpdateInput);
+  // Body is already validated by portalClientUpdateSchema (only the allowed fields survive).
+  // Blank values mean "not provided": the portal can fill in or change a field, not clear it.
+  const input = Object.fromEntries(Object.entries(req.body as PortalClientUpdateInput).filter(([, v]) => v != null && v !== "")) as ClientUpdateInput;
+  if (Object.keys(input).length === 0) throw new AppError("VALIDATION_ERROR", "Nothing to update");
+  await clientService.updateClient(req.user!, c.clientId, input);
   res.json(await service.getBusiness(c));
 }
 

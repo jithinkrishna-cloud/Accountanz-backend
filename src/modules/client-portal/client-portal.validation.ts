@@ -2,7 +2,16 @@ import { z } from "zod";
 import { optionalText, periodSchema } from "../../utils/zod-helpers.js";
 import { mentionsSchema } from "../communication/communication.validation.js";
 import { DOCUMENT_CATEGORIES } from "../documents/document.types.js";
+import { clientBodySchema } from "../clients/client.validation.js";
 import { NOTIFICATION_PREFS } from "./client-portal.types.js";
+
+/**
+ * What a client may change about their own company from the portal (Settings → business details).
+ * Same rules as the admin form; status, software, business type, contacts and every other field stay admin-only.
+ */
+export const portalClientUpdateSchema = clientBodySchema
+  .pick({ legal_name: true, trade_name: true, gstin: true, pan: true, state: true, address: true })
+  .partial();
 
 export const uploadMetaSchema = z.object({
   category: z.enum(DOCUMENT_CATEGORIES).default("other"),
@@ -67,3 +76,4 @@ export type ReplyInput = z.infer<typeof replySchema>;
 export type SettingsInput = z.infer<typeof settingsSchema>;
 export type ConnectJournlInput = z.infer<typeof connectJournlSchema>;
 export type MeetingRequestInput = z.infer<typeof meetingRequestSchema>;
+export type PortalClientUpdateInput = z.infer<typeof portalClientUpdateSchema>;

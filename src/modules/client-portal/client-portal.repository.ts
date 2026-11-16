@@ -44,7 +44,42 @@ export async function dashboard(clientId: number, period: string) {
 // ── Business, team, software ──
 export const business = (clientId: number) =>
   queryOne<Record<string, unknown>>(
-    `SELECT legal_name, trade_name, gstin, pan, state, address, status, accounting_software FROM clients WHERE id = ?`,
+    `SELECT legal_name, trade_name, business_type, date_of_establishment, gstin, pan, state, address,
+            primary_contact_name, primary_contact_email, primary_contact_phone, status, accounting_software
+       FROM clients WHERE id = ?`,
+    [clientId],
+  );
+
+// Progressive-onboarding profile, read-only in the portal. Column lists are explicit on purpose: internal notes and
+// stakeholders' personal identifiers/contact details (PAN, DIN, address, email, phone) stay with Accountanz staff.
+export const taxDetails = (clientId: number) =>
+  queryOne<Record<string, unknown>>(
+    `SELECT pan_number, pan_status, gstin, gstin_status, tan_number, tan_status, cin, cin_status, llpin, llpin_status,
+            msme_udyam_number, msme_status, professional_tax_registration, professional_tax_status
+       FROM company_tax_details WHERE client_id = ?`,
+    [clientId],
+  );
+
+export const stakeholders = (clientId: number) =>
+  query<Record<string, unknown>>(
+    `SELECT id, stakeholder_type, full_name, designation, ownership_percentage, is_primary
+       FROM company_stakeholders WHERE client_id = ? ORDER BY is_primary DESC, id ASC`,
+    [clientId],
+  );
+
+export const financialProfile = (clientId: number) =>
+  queryOne<Record<string, unknown>>(
+    `SELECT financial_year_start_month, annual_turnover, monthly_transaction_volume, employee_count, monthly_invoice_count, current_accounting_software
+       FROM company_financial_profile WHERE client_id = ?`,
+    [clientId],
+  );
+
+/** Requirements captured on the company's most recent onboarding case. */
+export const serviceRequirements = (clientId: number) =>
+  queryOne<Record<string, unknown>>(
+    `SELECT r.bookkeeping, r.gst_filing, r.income_tax_filing, r.payroll, r.audit_support, r.other_services
+       FROM onboarding_service_requirements r JOIN onboarding_cases oc ON oc.id = r.case_id
+      WHERE oc.client_id = ? ORDER BY oc.id DESC LIMIT 1`,
     [clientId],
   );
 export const branches = (clientId: number) =>

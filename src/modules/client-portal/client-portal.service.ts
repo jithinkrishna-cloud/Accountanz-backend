@@ -41,8 +41,15 @@ export async function getDashboard(ctx: ClientContext) {
 }
 
 export async function getBusiness(ctx: ClientContext) {
-  const [company, branches] = await Promise.all([repo.business(ctx.clientId), repo.branches(ctx.clientId)]);
-  return { ...company, branches };
+  const [company, branches, tax_details, stakeholders, financial_profile, service_requirements] = await Promise.all([
+    repo.business(ctx.clientId),
+    repo.branches(ctx.clientId),
+    repo.taxDetails(ctx.clientId),
+    repo.stakeholders(ctx.clientId),
+    repo.financialProfile(ctx.clientId),
+    repo.serviceRequirements(ctx.clientId),
+  ]);
+  return { ...company, branches, tax_details, stakeholders, financial_profile, service_requirements };
 }
 
 export const getTeam = (ctx: ClientContext) => repo.team(ctx.clientId);
