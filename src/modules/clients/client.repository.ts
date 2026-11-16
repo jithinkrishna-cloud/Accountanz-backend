@@ -166,6 +166,41 @@ export async function deleteStakeholder(stakeholderId: number, db: Db = pool) {
   await execute(`DELETE FROM company_stakeholders WHERE id = ?`, [stakeholderId], db);
 }
 
+/** Clears is_primary on every other stakeholder of the client, so at most one stays primary. */
+export async function clearOtherPrimaries(clientId: number, keepId: number, db: Db = pool) {
+  await execute(`UPDATE company_stakeholders SET is_primary = 0 WHERE client_id = ? AND id <> ? AND is_primary = 1`, [clientId, keepId], db);
+}
+
+/** Total ownership % recorded for the client, optionally ignoring one stakeholder (the one being edited). */
+export async function sumOwnership(clientId: number, exceptId: number | null, db: Db = pool) {
+  const row = await queryOne<{ total: number | null }>(
+    `SELECT SUM(ownership_percentage) AS total FROM company_stakeholders WHERE client_id = ? AND (? IS NULL OR id <> ?)`,
+    [clientId, exceptId, exceptId],
+    db,
+  );
+  return Number(row?.total ?? 0);
+}
+
+/**
+ * Keeps clients.pan/gstin and company_tax_details.pan_number/gstin in step. company_tax_details is the
+ * source of truth; clients keeps a copy for existing screens and the GSTIN uniqueness key.
+ * Only non-null values are copied, so clearing a field on one side never wipes the other.
+ */
+export async function mirrorRegistrationToTax(clientId: number, pan: string | null | undefined, gstin: string | null | undefined, db: Db = pool) {
+  if (!pan && !gstin) return;
+  await execute(
+    `INSERT INTO company_tax_details (client_id, pan_number, gstin) VALUES (?, ?, ?)
+     ON DUPLICATE KEY UPDATE pan_number = COALESCE(VALUES(pan_number), pan_number), gstin = COALESCE(VALUES(gstin), gstin)`,
+    [clientId, pan ?? null, gstin ?? null],
+    db,
+  );
+}
+
+export async function mirrorTaxToClient(clientId: number, pan: string | null, gstin: string | null, db: Db = pool) {
+  if (!pan && !gstin) return;
+  await execute(`UPDATE clients SET pan = COALESCE(?, pan), gstin = COALESCE(?, gstin) WHERE id = ?`, [pan, gstin, clientId], db);
+}
+
 export async function replaceStakeholders(clientId: number, stakeholders: StakeholderInput[], db: Db = pool) {
   await execute(`DELETE FROM company_stakeholders WHERE client_id = ?`, [clientId], db);
   for (const s of stakeholders) await insertStakeholder(clientId, s, db);

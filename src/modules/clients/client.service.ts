@@ -38,6 +38,7 @@ export async function createClient(actor: AuthUser, input: ClientInput) {
   await assertGstinFree(input.gstin);
   const id = await withTransaction(async (conn) => {
     const newId = await repo.insertClient(input, conn);
+    await repo.mirrorRegistrationToTax(newId, input.pan, input.gstin, conn);
     await recordAudit(actor, { action: "Client created", entityType: "Client", entityId: newId, clientId: newId, details: input.legal_name }, conn);
     return newId;
   });
@@ -50,6 +51,7 @@ export async function updateClient(actor: AuthUser, id: number, input: ClientUpd
   await assertGstinFree(input.gstin, id);
   await withTransaction(async (conn) => {
     await repo.updateClient(id, input, conn);
+    await repo.mirrorRegistrationToTax(id, input.pan, input.gstin, conn);
     const statusChange = input.status && input.status !== before.status ? ` (status ${before.status} → ${input.status})` : "";
     await recordAudit(
       actor,
@@ -137,9 +139,32 @@ export async function removeBranch(actor: AuthUser, clientId: number, branchId: 
 // Progressive onboarding entities (additive)
 export async function saveTaxDetails(actor: AuthUser, clientId: number, input: CompanyTaxDetailsInput) {
   await getClient(clientId);
-  const details = await repo.upsertTaxDetails(clientId, input);
-  await recordAudit(actor, { action: "Client tax details saved", entityType: "Client", entityId: clientId, clientId });
-  return details;
+  if (input.gstin) {
+    const existing = await repo.findClientByGstin(input.gstin);
+    if (existing && existing.id !== clientId) {
+      const message = "Another client already uses this GSTIN";
+      throw new AppError("CONFLICT", message, { fieldErrors: { gstin: [message] } });
+    }
+  }
+  return withTransaction(async (conn) => {
+    const details = await repo.upsertTaxDetails(clientId, input, conn);
+    await repo.mirrorTaxToClient(clientId, input.pan_number, input.gstin, conn);
+    await recordAudit(actor, { action: "Client tax details saved", entityType: "Client", entityId: clientId, clientId }, conn);
+    return details;
+  });
+}
+
+const OWNERSHIP_ERROR = "Total ownership across stakeholders can't exceed 100%";
+
+/** Rejects an add/edit that would push the client's total ownership above 100%. */
+async function assertOwnershipFits(clientId: number, exceptId: number | null, input: StakeholderInput, conn: Parameters<typeof repo.sumOwnership>[2]) {
+  if (input.ownership_percentage == null) return;
+  const others = await repo.sumOwnership(clientId, exceptId, conn);
+  if (others + input.ownership_percentage > 100.0001) {
+    throw new AppError("VALIDATION_ERROR", OWNERSHIP_ERROR, {
+      fieldErrors: { ownership_percentage: [`Only ${Math.max(0, 100 - others).toFixed(2)}% is left to allocate`] },
+    });
+  }
 }
 
 export async function listStakeholders(clientId: number) {
@@ -149,24 +174,32 @@ export async function listStakeholders(clientId: number) {
 
 export async function saveStakeholders(actor: AuthUser, clientId: number, stakeholders: StakeholderInput[]) {
   await getClient(clientId);
-  const rows = await repo.replaceStakeholders(clientId, stakeholders);
+  const rows = await withTransaction((conn) => repo.replaceStakeholders(clientId, stakeholders, conn));
   await recordAudit(actor, { action: "Client stakeholders saved", entityType: "Client", entityId: clientId, clientId, details: `${rows.length} stakeholder(s)` });
   return rows;
 }
 
 export async function addStakeholder(actor: AuthUser, clientId: number, input: StakeholderInput) {
   await getClient(clientId);
-  const id = await repo.insertStakeholder(clientId, input);
-  await recordAudit(actor, { action: "Client stakeholder added", entityType: "Client", entityId: clientId, clientId, details: input.full_name });
-  return repo.findStakeholder(clientId, id);
+  return withTransaction(async (conn) => {
+    await assertOwnershipFits(clientId, null, input, conn);
+    const id = await repo.insertStakeholder(clientId, input, conn);
+    if (input.is_primary) await repo.clearOtherPrimaries(clientId, id, conn);
+    await recordAudit(actor, { action: "Client stakeholder added", entityType: "Client", entityId: clientId, clientId, details: input.full_name }, conn);
+    return repo.findStakeholder(clientId, id, conn);
+  });
 }
 
 export async function updateStakeholder(actor: AuthUser, clientId: number, stakeholderId: number, input: StakeholderInput) {
   await getClient(clientId);
   if (!(await repo.findStakeholder(clientId, stakeholderId))) throw AppError.notFound("Stakeholder");
-  await repo.updateStakeholder(stakeholderId, input);
-  await recordAudit(actor, { action: "Client stakeholder updated", entityType: "Client", entityId: clientId, clientId, details: input.full_name });
-  return repo.findStakeholder(clientId, stakeholderId);
+  return withTransaction(async (conn) => {
+    await assertOwnershipFits(clientId, stakeholderId, input, conn);
+    await repo.updateStakeholder(stakeholderId, input, conn);
+    if (input.is_primary) await repo.clearOtherPrimaries(clientId, stakeholderId, conn);
+    await recordAudit(actor, { action: "Client stakeholder updated", entityType: "Client", entityId: clientId, clientId, details: input.full_name }, conn);
+    return repo.findStakeholder(clientId, stakeholderId, conn);
+  });
 }
 
 export async function removeStakeholder(actor: AuthUser, clientId: number, stakeholderId: number) {

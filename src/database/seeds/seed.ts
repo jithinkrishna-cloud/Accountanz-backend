@@ -215,10 +215,46 @@ async function main() {
     const reviewers = [priya, meera];
 
     for (const [i, [legal_name, trade_name, gstin, pan, state, status, software, pkg, fee]] of clientDefs.entries()) {
-      const clientId = await ins(conn, "clients", { legal_name, trade_name, gstin, pan, state, status, accounting_software: software, address: `${state}, India` });
+      const business_type = legal_name.endsWith("LLP") ? "llp" : legal_name.includes("Pvt Ltd") ? "private_limited" : "proprietorship";
+      const contactFirst = ["Anil", "Kavya", "Sameer", "Divya", "Karthik", "Pooja", "Harsh", "Lakshmi", "Rohit"][i % 9];
+      const contactSlug = trade_name.toLowerCase().replace(/[^a-z]+/g, "");
+      const clientId = await ins(conn, "clients", {
+        legal_name, trade_name, business_type, gstin, pan, state, status, accounting_software: software, address: `${state}, India`,
+        date_of_establishment: `${2008 + i}-04-01`,
+        primary_contact_name: `${contactFirst} ${trade_name.split(" ")[0]}`,
+        primary_contact_email: `${contactFirst.toLowerCase()}@${contactSlug}.example`,
+        primary_contact_phone: `+91 98${String(10000000 + i * 1234567).slice(0, 8)}`,
+      });
+
+      // Progressive-onboarding profile. The "registered" prospect stays sparse so the readiness checklist has gaps to show.
+      const sparse = status === "onboarding" && i % 2 === 1;
+      await ins(conn, "company_tax_details", {
+        client_id: clientId,
+        pan_number: pan, pan_status: pan ? "registered" : "applied",
+        gstin, gstin_status: gstin ? "registered" : "not_registered",
+        professional_tax_status: sparse ? null : "registered",
+      });
+      if (!sparse) {
+        const ownerType = business_type === "llp" ? "partner" : business_type === "proprietorship" ? "proprietor" : "director";
+        const owners = business_type === "proprietorship" ? [100] : [60, 40];
+        for (const [n, share] of owners.entries()) {
+          await ins(conn, "company_stakeholders", {
+            client_id: clientId, stakeholder_type: ownerType,
+            full_name: n === 0 ? `${contactFirst} ${trade_name.split(" ")[0]}` : `${["Sunita", "Manoj", "Rekha", "Ajay"][i % 4]} ${trade_name.split(" ")[0]}`,
+            designation: ownerType === "director" ? (n === 0 ? "Managing Director" : "Director") : null,
+            ownership_percentage: share, is_primary: n === 0,
+          });
+        }
+        await ins(conn, "company_financial_profile", {
+          client_id: clientId, financial_year_start_month: 4,
+          annual_turnover: (5 + i * 3) * 1_000_000, monthly_transaction_volume: 300 + i * 70,
+          employee_count: 8 + i * 4, monthly_invoice_count: 60 + i * 15,
+          current_accounting_software: software === "journl" ? "Journl" : "Spreadsheets",
+        });
+      }
 
       if (status === "onboarding") {
-        await ins(conn, "onboarding_cases", {
+        const caseId = await ins(conn, "onboarding_cases", {
           client_id: clientId,
           stage: i % 2 ? "registered" : "proposal_sent",
           monthly_transaction_volume: i % 2 ? null : 820,
@@ -228,6 +264,12 @@ async function main() {
           suggested_monthly_fee: i % 2 ? null : 48000,
           notes: i % 2 ? null : "Two branches, books on spreadsheets today. Needs GST plus payroll.",
         });
+        if (!sparse) {
+          await ins(conn, "onboarding_service_requirements", {
+            case_id: caseId, bookkeeping: true, gst_filing: true, income_tax_filing: true, payroll: true, audit_support: false,
+            notes: "Two branches; payroll for ~40 staff.",
+          });
+        }
         continue;
       }
 

@@ -88,7 +88,11 @@ export const stakeholderSchema = z.object({
 });
 
 export const stakeholderListSchema = z.object({
-  stakeholders: z.array(stakeholderSchema).max(100),
+  stakeholders: z
+    .array(stakeholderSchema)
+    .max(100)
+    .refine((list) => list.filter((s) => s.is_primary).length <= 1, "Only one stakeholder can be primary")
+    .refine((list) => list.reduce((sum, s) => sum + (s.ownership_percentage ?? 0), 0) <= 100.0001, "Total ownership across stakeholders can't exceed 100%"),
 });
 
 export const stakeholderParamsSchema = z.object({

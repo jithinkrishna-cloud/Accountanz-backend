@@ -82,6 +82,7 @@ export async function openProspect(actor: AuthUser, input: ProspectInput, conn: 
     },
     conn,
   );
+  await clientRepo.mirrorRegistrationToTax(clientId, input.pan, input.gstin, conn);
   const caseId = await repo.insertCase(clientId, input.notes ?? null, conn);
   await recordAudit(actor, { action, entityType: "OnboardingCase", entityId: caseId, clientId, details: input.legal_name }, conn);
   return { clientId, caseId };
