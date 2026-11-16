@@ -6,12 +6,11 @@ import { clientBodySchema } from "../clients/client.validation.js";
 import { NOTIFICATION_PREFS } from "./client-portal.types.js";
 
 /**
- * What a client may change about their own company from the portal (Settings → business details).
- * Same rules as the admin form; status, software, business type, contacts and every other field stay admin-only.
+ * What a company owner may change about their own company from the portal (Settings → business details).
+ * Legal name, GSTIN, PAN and everything else are admin-only; clients ask for those via "Request correction".
+ * Same rules as the admin form. A blank value clears the field.
  */
-export const portalClientUpdateSchema = clientBodySchema
-  .pick({ legal_name: true, trade_name: true, gstin: true, pan: true, state: true, address: true })
-  .partial();
+export const portalClientUpdateSchema = clientBodySchema.pick({ trade_name: true, state: true, address: true }).partial();
 
 export const uploadMetaSchema = z.object({
   category: z.enum(DOCUMENT_CATEGORIES).default("other"),

@@ -72,11 +72,11 @@ export const updateSettings = async (req: Request, res: Response) => void res.js
 
 export async function updateClient(req: Request, res: Response) {
   const c = ctx(res);
-  // Body is already validated by portalClientUpdateSchema (only the allowed fields survive).
-  // Blank values mean "not provided": the portal can fill in or change a field, not clear it.
-  const input = Object.fromEntries(Object.entries(req.body as PortalClientUpdateInput).filter(([, v]) => v != null && v !== "")) as ClientUpdateInput;
+  if (c.role !== "owner") throw AppError.forbidden("Only the company owner can change business details");
+  // Body is already validated by portalClientUpdateSchema: only trade name, state and address survive.
+  const input = req.body as PortalClientUpdateInput;
   if (Object.keys(input).length === 0) throw new AppError("VALIDATION_ERROR", "Nothing to update");
-  await clientService.updateClient(req.user!, c.clientId, input);
+  await clientService.updateClient(req.user!, c.clientId, input as ClientUpdateInput);
   res.json(await service.getBusiness(c));
 }
 
