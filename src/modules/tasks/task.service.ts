@@ -293,6 +293,21 @@ function recursIn(recurrence: GenerationCandidate["recurrence"], month: number) 
 
 const REVIEWER_PREFERENCE = ["finance_manager", "reviewer", "cfo"];
 
+/** Days a task gets when it's generated after its template due day has already passed. */
+const LATE_GENERATION_GRACE_DAYS = 3;
+
+/**
+ * A template's due day for the period, unless that day has already gone by (tasks generated late in the month,
+ * or for a past month): then the task is due a few days from today rather than born overdue. Dates are India time.
+ */
+function dueOnGeneration(templateDue: string): string {
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+  if (templateDue >= today) return templateDue;
+  const d = new Date(`${today}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + LATE_GENERATION_GRACE_DAYS);
+  return d.toISOString().slice(0, 10);
+}
+
 /**
  * Creates the period's tasks from templates for every active engagement, skipping tasks that already
  * exist (unique engagement × template item × period). One-off tasks are never touched.
@@ -332,7 +347,7 @@ export async function generateTasks(actor: AuthUser, period: string): Promise<Ge
           createdBy: actor.id,
           assigneeId,
           reviewerId,
-          dueDate: `${period}-${String(Math.min(c.due_day_of_period, daysInMonth)).padStart(2, "0")}`,
+          dueDate: dueOnGeneration(`${period}-${String(Math.min(c.due_day_of_period, daysInMonth)).padStart(2, "0")}`),
           clientVisible: Boolean(c.client_visible),
         },
         conn,
