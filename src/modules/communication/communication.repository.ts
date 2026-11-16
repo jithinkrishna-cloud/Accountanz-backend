@@ -39,7 +39,7 @@ export const findThread = (id: number) =>
 
 export const threadMessages = (threadId: number) =>
   query<MessageRow>(
-    `SELECT m.id, m.body, m.created_at, u.full_name AS author, m.author_id, COALESCE(${CLIENT_AUTHOR}, 0) AS from_client, ${MESSAGE_MENTIONS_SQL}
+    `SELECT m.id, m.body, m.created_at, ${MESSAGE_EDIT_SQL}, u.full_name AS author, m.author_id, COALESCE(${CLIENT_AUTHOR}, 0) AS from_client, ${MESSAGE_MENTIONS_SQL}
        FROM messages m LEFT JOIN users u ON u.id = m.author_id WHERE m.thread_id = ? ORDER BY m.created_at, m.id`,
     [threadId],
   );
@@ -50,6 +50,38 @@ export async function insertThread(clientId: number, visibility: ThreadVisibilit
 
 export async function insertMessage(threadId: number, userId: number, body: string, conn: PoolConnection) {
   return (await execute(`INSERT INTO messages (thread_id, author_id, body) VALUES (?, ?, ?)`, [threadId, userId, body], conn)).insertId;
+}
+
+// ── Editing a sent message ──
+/** How long an author can edit a message after sending it. */
+export const MESSAGE_EDIT_MINUTES = 5;
+
+/** Select-list columns (alias m = messages): when it was edited, and how many seconds its author can still edit it. */
+export const MESSAGE_EDIT_SQL = `m.edited_at, GREATEST(0, TIMESTAMPDIFF(SECOND, NOW(), m.created_at + INTERVAL ${MESSAGE_EDIT_MINUTES} MINUTE)) AS edit_seconds_left`;
+
+export const findMessage = (threadId: number, messageId: number) =>
+  queryOne<{ id: number; author_id: number | null; body: string; editable: 0 | 1 }>(
+    `SELECT id, author_id, body, created_at >= NOW() - INTERVAL ${MESSAGE_EDIT_MINUTES} MINUTE AS editable FROM messages WHERE id = ? AND thread_id = ?`,
+    [messageId, threadId],
+  );
+
+/** Edits the author's own message only while it's inside the edit window (checked again in the UPDATE, so a slow request can't slip past it). */
+export async function updateOwnMessage(threadId: number, messageId: number, authorId: number, body: string, conn: PoolConnection) {
+  const r = await execute(
+    `UPDATE messages SET body = ?, edited_at = NOW()
+      WHERE id = ? AND thread_id = ? AND author_id = ? AND created_at >= NOW() - INTERVAL ${MESSAGE_EDIT_MINUTES} MINUTE`,
+    [body, messageId, threadId, authorId],
+    conn,
+  );
+  return r.affectedRows > 0;
+}
+
+/** Replaces a message's @mentions; returns who was mentioned before, so only newly mentioned people are notified. */
+export async function replaceMentions(messageId: number, userIds: number[], conn: PoolConnection) {
+  const before = (await query<{ user_id: number }>(`SELECT user_id FROM message_mentions WHERE message_id = ?`, [messageId], conn)).map((r) => r.user_id);
+  await execute(`DELETE FROM message_mentions WHERE message_id = ?`, [messageId], conn);
+  await saveMentions(messageId, userIds, conn);
+  return before;
 }
 
 // ── Meetings ──

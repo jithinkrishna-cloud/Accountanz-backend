@@ -22,6 +22,10 @@ export interface MessageRow {
   id: number;
   body: string;
   created_at: string;
+  /** Set once the author has edited it. */
+  edited_at: string | null;
+  /** Seconds left in which the author may still edit it (0 when the window has closed). */
+  edit_seconds_left: number;
   author: string | null;
   author_id: number | null;
   from_client: 0 | 1;

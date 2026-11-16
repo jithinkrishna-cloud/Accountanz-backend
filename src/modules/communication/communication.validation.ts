@@ -29,6 +29,10 @@ export const newThreadSchema = z.object({
 
 export const replySchema = z.object({ body, mentions: mentionsSchema });
 
+/** A message inside a thread: /threads/:id/messages/:messageId. */
+export const messageParam = z.object({ id: z.coerce.number().int().positive(), messageId: z.coerce.number().int().positive() });
+export type MessageParam = z.infer<typeof messageParam>;
+
 export const meetingListQuerySchema = listQuerySchema.extend({
   client_id: z.coerce.number().int().positive().optional(),
   when: z.enum(["upcoming", "past"]).default("upcoming"),

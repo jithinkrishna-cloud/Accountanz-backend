@@ -5,7 +5,8 @@
 import type { PoolConnection } from "mysql2/promise";
 import { execute, pool, query, queryOne } from "../../database/connection.js";
 import { activeAssignmentSql } from "../access/client-access.js";
-import { MESSAGE_MENTIONS_SQL } from "../communication/communication.repository.js";
+import { MESSAGE_EDIT_SQL, MESSAGE_MENTIONS_SQL } from "../communication/communication.repository.js";
+import type { MessageRow } from "../communication/communication.types.js";
 
 type Db = PoolConnection | typeof pool;
 
@@ -262,8 +263,8 @@ export const findThread = (clientId: number, id: number) =>
   queryOne<{ id: number; subject: string | null }>(`SELECT id, subject FROM message_threads WHERE id = ? AND client_id = ? AND visibility = 'client'`, [id, clientId]);
 
 export const threadMessages = (threadId: number) =>
-  query<{ id: number; body: string; created_at: string; author: string | null; author_id: number | null; from_client: 0 | 1; mentions: { user_id: number; full_name: string }[] | null }>(
-    `SELECT m.id, m.body, m.created_at, u.full_name AS author, m.author_id, u.portal_role IN ('client_owner', 'client_member') AS from_client, ${MESSAGE_MENTIONS_SQL}
+  query<MessageRow>(
+    `SELECT m.id, m.body, m.created_at, ${MESSAGE_EDIT_SQL}, u.full_name AS author, m.author_id, u.portal_role IN ('client_owner', 'client_member') AS from_client, ${MESSAGE_MENTIONS_SQL}
        FROM messages m LEFT JOIN users u ON u.id = m.author_id WHERE m.thread_id = ? ORDER BY m.created_at, m.id`,
     [threadId],
   );

@@ -78,6 +78,39 @@ export async function reply(actor: AuthUser, threadId: number, body: string, men
   return getThread(actor, threadId);
 }
 
+/**
+ * The author corrects their own message, only within MESSAGE_EDIT_MINUTES of sending it. Shared by the team
+ * and client portal routes (each checks the caller may see the thread first). Only newly @mentioned people are notified.
+ */
+export async function editOwnMessage(
+  actor: AuthUser,
+  thread: { id: number; client_id: number; visibility: "client" | "internal"; subject: string | null },
+  messageId: number,
+  body: string,
+  mentionIds: number[] = [],
+) {
+  const message = await repo.findMessage(thread.id, messageId);
+  if (!message) throw AppError.notFound("Message");
+  if (message.author_id !== actor.id) throw AppError.forbidden("You can only edit your own messages");
+  if (!message.editable) throw AppError.conflict(`Messages can only be edited for ${repo.MESSAGE_EDIT_MINUTES} minutes after sending`);
+  const mentioned = await resolveMentions(thread.client_id, thread.visibility, mentionIds, actor.id);
+  const before = await withTransaction(async (conn) => {
+    if (!(await repo.updateOwnMessage(thread.id, messageId, actor.id, body, conn))) {
+      throw AppError.conflict(`Messages can only be edited for ${repo.MESSAGE_EDIT_MINUTES} minutes after sending`);
+    }
+    return repo.replaceMentions(messageId, mentioned.map((p) => p.user_id), conn);
+  });
+  await recordAudit(actor, { action: "Message edited", entityType: "Message", entityId: messageId, clientId: thread.client_id, details: thread.subject ?? undefined });
+  const added = mentioned.filter((p) => !before.includes(p.user_id));
+  void notifyMentioned({ clientId: thread.client_id, threadId: thread.id, messageId, authorId: actor.id, author: actor.fullName, subject: thread.subject ?? "Conversation", body, mentioned: added });
+}
+
+export async function editMessage(actor: AuthUser, threadId: number, messageId: number, body: string, mentionIds: number[] = []) {
+  const thread = await requireThread(actor, threadId);
+  await editOwnMessage(actor, thread, messageId, body, mentionIds);
+  return getThread(actor, threadId);
+}
+
 // ── Meetings ──
 export const listMeetings = (actor: AuthUser, q: MeetingListQuery) => repo.listMeetings(q, clientScope(actor, "mt.client_id"));
 

@@ -67,7 +67,11 @@ export async function decideApproval(req: Request, res: Response) {
 export const thread = async (_req: Request, res: Response) => void res.json(await service.getThread(ctx(res), idOf(res)));
 export const startThread = async (req: Request, res: Response) => void res.status(201).json(await service.startThread(req.user!, ctx(res), req.body));
 export const reply = async (req: Request, res: Response) => void res.status(201).json(await service.reply(req.user!, ctx(res), idOf(res), req.body.body, req.body.mentions));
-export const mentionable = async (req: Request, res: Response) => void res.json({ items: await service.getMentionable(req.user!, ctx(res)) });
+export const editMessage = async (req: Request, res: Response) => {
+  const p = res.locals.params as { id: number; messageId: number };
+  res.json(await service.editMessage(req.user!, ctx(res), p.id, p.messageId, req.body.body, req.body.mentions));
+};
+export const mentionable =async (req: Request, res: Response) => void res.json({ items: await service.getMentionable(req.user!, ctx(res)) });
 export const updateSettings = async (req: Request, res: Response) => void res.json(await service.updateSettings(ctx(res), req.body));
 
 export async function updateClient(req: Request, res: Response) {

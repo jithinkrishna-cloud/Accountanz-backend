@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import type { IdParam } from "../../middleware/validate.js";
 import * as service from "./communication.service.js";
-import type { DeclineRequestInput, MeetingListQuery, MentionableQuery, MeetingRequestListQuery, NewMeetingInput, NewThreadInput, ReplyInput, ThreadListQuery } from "./communication.validation.js";
+import type { DeclineRequestInput, MeetingListQuery, MentionableQuery, MeetingRequestListQuery, MessageParam, NewMeetingInput, NewThreadInput, ReplyInput, ThreadListQuery } from "./communication.validation.js";
 
 const id = (res: Response) => (res.locals.params as IdParam).id;
 
@@ -11,6 +11,11 @@ export const startThread = async (req: Request, res: Response) => void res.statu
 export const reply = async (req: Request, res: Response) => {
   const b = req.body as ReplyInput;
   res.status(201).json(await service.reply(req.user!, id(res), b.body, b.mentions));
+};
+export const editMessage = async (req: Request, res: Response) => {
+  const p = res.locals.params as MessageParam;
+  const b = req.body as ReplyInput;
+  res.json(await service.editMessage(req.user!, p.id, p.messageId, b.body, b.mentions));
 };
 export const mentionable = async (req: Request, res: Response) => {
   const q = res.locals.query as MentionableQuery;

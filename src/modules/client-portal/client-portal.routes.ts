@@ -7,6 +7,7 @@ import { CLIENT_ROLES } from "../../types/auth.types.js";
 import * as c from "./client-portal.controller.js";
 import { requireContext } from "./client-portal.service.js";
 import { exploreRoutes } from "../accountant-requests/accountant-request.routes.js";
+import { messageParam } from "../communication/communication.validation.js";
 import { approvalDecisionSchema, connectJournlSchema, meetingRequestSchema, newThreadSchema, portalClientUpdateSchema, replySchema, settingsSchema, tasksQuerySchema, uploadMetaSchema } from "./client-portal.validation.js";
 import { activity as jlActivity, catalog as jlCatalog, team as jlTeam, setModule as jlSetModule } from "./journl-client-permission.controller.js";
 import { modulePermissionBody, modulePermissionParams } from "../journl-permissions/permission.validation.js";
@@ -45,6 +46,7 @@ clientPortalRoutes.post("/messages", validate({ body: newThreadSchema }), c.star
 clientPortalRoutes.get("/messages/mentionable", c.mentionable);
 clientPortalRoutes.get("/messages/:id", validate({ params: idParam }), c.thread);
 clientPortalRoutes.post("/messages/:id", validate({ params: idParam, body: replySchema }), c.reply);
+clientPortalRoutes.patch("/messages/:id/:messageId", validate({ params: messageParam, body: replySchema }), c.editMessage);
 clientPortalRoutes.get("/meetings", c.meetings);
 clientPortalRoutes.get("/meeting-requests", c.meetingRequests);
 clientPortalRoutes.post("/meeting-requests", validate({ body: meetingRequestSchema }), c.requestMeeting);

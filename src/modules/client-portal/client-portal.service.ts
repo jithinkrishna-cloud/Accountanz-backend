@@ -6,7 +6,7 @@ import { encryptSecret } from "../../utils/crypto.js";
 import { deleteFile, openFile, saveFile } from "../../utils/file-storage.js";
 import { recordAudit } from "../audit/audit.service.js";
 import * as meetingRepo from "../communication/communication.repository.js";
-import { mentionableFor, messagesWithMentions, resolveMentions } from "../communication/communication.service.js";
+import { editOwnMessage, mentionableFor, messagesWithMentions, resolveMentions } from "../communication/communication.service.js";
 import { notifyApprovalDecided, notifyClientMessage, notifyDocumentReceived, notifyMeetingRequested, notifyMentioned } from "../notifications/notification.service.js";
 import { setClientSoftware } from "../integrations/integration.repository.js";
 import { journlGateway } from "../integrations/journl.gateway.js";
@@ -245,6 +245,14 @@ export async function reply(actor: AuthUser, ctx: ClientContext, threadId: numbe
   const subject = thread.subject ?? "Message";
   void notifyMentioned({ clientId: ctx.clientId, threadId, messageId, authorId: actor.id, author: actor.fullName, subject, body, mentioned });
   void notifyClientMessage(ctx.clientId, { clientName: ctx.clientName, subject, body, author: actor.fullName, threadId, messageId, skipEmails: mentioned.map((p) => p.email) });
+  return getThread(ctx, threadId);
+}
+
+/** The author corrects their own message within the edit window (see editOwnMessage). */
+export async function editMessage(actor: AuthUser, ctx: ClientContext, threadId: number, messageId: number, body: string, mentionIds: number[] = []) {
+  const thread = await repo.findThread(ctx.clientId, threadId);
+  if (!thread) throw AppError.notFound("Conversation");
+  await editOwnMessage(actor, { id: thread.id, client_id: ctx.clientId, visibility: "client", subject: thread.subject }, messageId, body, mentionIds);
   return getThread(ctx, threadId);
 }
 
