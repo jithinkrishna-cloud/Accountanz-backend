@@ -126,7 +126,7 @@ export async function accessOverview() {
   const assignments = await repo.accessAssignments(clients.map((c) => c.client_id));
   const perms = await Promise.all(assignments.map((a) => assignmentPermissions(a.assignment_id)));
   return {
-    modules: catalogModules.filter((m) => m.default_policy !== "restricted").map((m) => ({ key: m.module_key, label: m.label, journl_features: m.journl_module_id })),
+    modules: catalogModules.filter((m) => m.default_policy !== "restricted").map((m) => ({ key: m.module_key, label: m.label, journl_features: m.journl_module_id, features: m.features })),
     clients: clients.map((c) => ({
       client_id: c.client_id,
       client_name: c.client_name,

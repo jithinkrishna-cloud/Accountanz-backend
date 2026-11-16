@@ -1,3 +1,4 @@
+import type { JournlFeature } from "../integrations/journl-features.js";
 export const MODULE_POLICIES = ["limited", "configurable", "restricted"] as const;
 export type ModulePolicy = (typeof MODULE_POLICIES)[number];
 
@@ -14,6 +15,8 @@ export interface CatalogModule {
   label: string;
   default_policy: ModulePolicy;
   journl_module_id: string | null;
+  /** journl_module_id resolved to JournL feature names (what this module actually opens in JournL). */
+  features: JournlFeature[];
   verified: boolean;
   actions: ModuleAction[];
 }

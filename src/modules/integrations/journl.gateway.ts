@@ -83,6 +83,9 @@ async function signIn(email: string, password: string): Promise<SignInResult> {
   }
 
   if (!body.success) {
+    // JournL's own wording, for support: the mapping below is lossy (e.g. "invalid email or password" reads as a bad password).
+    // Never log the email or password.
+    logger.info({ journlMessage: body.message, journlCode: body.code }, "JournL sign-in rejected");
     const msg = (body.message ?? "").toLowerCase();
     if (msg.includes("not found")) return { kind: "rejected", field: "journl_email", reason: "No JournL account uses this email" };
     if (msg.includes("password")) return { kind: "rejected", field: "journl_password", reason: "That JournL password is incorrect" };

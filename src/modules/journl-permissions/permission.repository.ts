@@ -1,6 +1,7 @@
 import type { PoolConnection } from "mysql2/promise";
 import { execute, query, queryOne } from "../../database/connection.js";
 import { activeAssignmentSql } from "../access/client-access.js";
+import { featuresFor } from "../integrations/journl-features.js";
 import type { AssignmentGates, CatalogModule, GrantSource, ModuleGrant, ModulePolicy } from "./permission.types.js";
 
 interface ModuleDbRow {
@@ -30,7 +31,7 @@ export async function catalog(db?: PoolConnection, moduleKey?: string): Promise<
   for (const r of rows) {
     let m = modules.get(r.module_key);
     if (!m) {
-      m = { module_key: r.module_key, label: r.label, default_policy: r.default_policy, journl_module_id: r.journl_module_id, verified: r.module_verified_at !== null, actions: [] };
+      m = { module_key: r.module_key, label: r.label, default_policy: r.default_policy, journl_module_id: r.journl_module_id, features: featuresFor(r.journl_module_id), verified: r.module_verified_at !== null, actions: [] };
       modules.set(r.module_key, m);
     }
     if (r.action_key) m.actions.push({ action_key: r.action_key, label: r.action_label ?? r.action_key, journl_action_id: r.journl_action_id, verified: r.action_verified_at !== null });
