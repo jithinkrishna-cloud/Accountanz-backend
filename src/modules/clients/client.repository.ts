@@ -2,13 +2,43 @@ import type { PoolConnection } from "mysql2/promise";
 import { activeAssignmentSql } from "../access/client-access.js";
 import { execute, pool, query, queryOne, type Param } from "../../database/connection.js";
 import { offsetOf, type Paged } from "../../utils/pagination.js";
-import type { ClientBranchRow, ClientDetail, ClientRow } from "./client.types.js";
-import type { BranchInput, ClientInput, ClientListQuery, ClientUpdateInput } from "./client.validation.js";
+import type {
+  ClientBranchRow,
+  ClientDetail,
+  ClientRow,
+  CompanyFinancialProfile,
+  CompanyStakeholderRow,
+  CompanyTaxDetails,
+} from "./client.types.js";
+import type {
+  BranchInput,
+  ClientInput,
+  ClientListQuery,
+  ClientUpdateInput,
+  CompanyTaxDetailsInput,
+  FinancialProfileInput,
+  StakeholderInput,
+} from "./client.validation.js";
 
 type Db = PoolConnection | typeof pool;
 
-const COLUMNS = "id, legal_name, trade_name, gstin, pan, state, address, status, accounting_software, created_at, updated_at";
-const WRITABLE = ["legal_name", "trade_name", "gstin", "pan", "state", "address", "status", "accounting_software"] as const;
+const COLUMNS =
+  "id, legal_name, trade_name, business_type, date_of_establishment, gstin, pan, state, address, primary_contact_name, primary_contact_email, primary_contact_phone, status, accounting_software, created_at, updated_at";
+const WRITABLE = [
+  "legal_name",
+  "trade_name",
+  "business_type",
+  "date_of_establishment",
+  "gstin",
+  "pan",
+  "state",
+  "address",
+  "primary_contact_name",
+  "primary_contact_email",
+  "primary_contact_phone",
+  "status",
+  "accounting_software",
+] as const;
 
 /**
  * Roles each client's package includes vs. the roles assigned today: what's missing. A reviewer covers
@@ -68,10 +98,102 @@ export function findClientByGstin(gstin: string) {
   return queryOne<{ id: number }>(`SELECT id FROM clients WHERE gstin = ?`, [gstin]);
 }
 
+export const getTaxDetails = (clientId: number, db: Db = pool) =>
+  queryOne<CompanyTaxDetails>(`SELECT * FROM company_tax_details WHERE client_id = ?`, [clientId], db);
+
+export async function upsertTaxDetails(clientId: number, input: CompanyTaxDetailsInput, db: Db = pool) {
+  await execute(
+    `INSERT INTO company_tax_details
+      (client_id, pan_number, pan_status, tan_number, tan_status, gstin, gstin_status, cin, cin_status, llpin, llpin_status, msme_udyam_number, msme_status, professional_tax_registration, professional_tax_status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+      pan_number = VALUES(pan_number), pan_status = VALUES(pan_status), tan_number = VALUES(tan_number), tan_status = VALUES(tan_status),
+      gstin = VALUES(gstin), gstin_status = VALUES(gstin_status), cin = VALUES(cin), cin_status = VALUES(cin_status),
+      llpin = VALUES(llpin), llpin_status = VALUES(llpin_status), msme_udyam_number = VALUES(msme_udyam_number), msme_status = VALUES(msme_status),
+      professional_tax_registration = VALUES(professional_tax_registration), professional_tax_status = VALUES(professional_tax_status)`,
+    [
+      clientId,
+      input.pan_number,
+      input.pan_status,
+      input.tan_number,
+      input.tan_status,
+      input.gstin,
+      input.gstin_status,
+      input.cin,
+      input.cin_status,
+      input.llpin,
+      input.llpin_status,
+      input.msme_udyam_number,
+      input.msme_status,
+      input.professional_tax_registration,
+      input.professional_tax_status,
+    ],
+    db,
+  );
+  return getTaxDetails(clientId, db);
+}
+
+export const listStakeholders = (clientId: number, db: Db = pool) =>
+  query<CompanyStakeholderRow>(
+    `SELECT id, client_id, stakeholder_type, full_name, email, phone, designation, ownership_percentage, pan_number, din_number, address, is_primary, created_at, updated_at
+       FROM company_stakeholders WHERE client_id = ? ORDER BY is_primary DESC, id ASC`,
+    [clientId],
+    db,
+  );
+
+export const findStakeholder = (clientId: number, stakeholderId: number, db: Db = pool) =>
+  queryOne<CompanyStakeholderRow>(`SELECT * FROM company_stakeholders WHERE id = ? AND client_id = ?`, [stakeholderId, clientId], db);
+
+export async function insertStakeholder(clientId: number, input: StakeholderInput, db: Db = pool) {
+  const r = await execute(
+    `INSERT INTO company_stakeholders (client_id, stakeholder_type, full_name, email, phone, designation, ownership_percentage, pan_number, din_number, address, is_primary)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [clientId, input.stakeholder_type, input.full_name, input.email, input.phone, input.designation, input.ownership_percentage, input.pan_number, input.din_number, input.address, input.is_primary ? 1 : 0],
+    db,
+  );
+  return r.insertId;
+}
+
+export async function updateStakeholder(stakeholderId: number, input: StakeholderInput, db: Db = pool) {
+  await execute(
+    `UPDATE company_stakeholders SET stakeholder_type = ?, full_name = ?, email = ?, phone = ?, designation = ?, ownership_percentage = ?, pan_number = ?, din_number = ?, address = ?, is_primary = ? WHERE id = ?`,
+    [input.stakeholder_type, input.full_name, input.email, input.phone, input.designation, input.ownership_percentage, input.pan_number, input.din_number, input.address, input.is_primary ? 1 : 0, stakeholderId],
+    db,
+  );
+}
+
+export async function deleteStakeholder(stakeholderId: number, db: Db = pool) {
+  await execute(`DELETE FROM company_stakeholders WHERE id = ?`, [stakeholderId], db);
+}
+
+export async function replaceStakeholders(clientId: number, stakeholders: StakeholderInput[], db: Db = pool) {
+  await execute(`DELETE FROM company_stakeholders WHERE client_id = ?`, [clientId], db);
+  for (const s of stakeholders) await insertStakeholder(clientId, s, db);
+  return listStakeholders(clientId, db);
+}
+
+export const getFinancialProfile = (clientId: number, db: Db = pool) =>
+  queryOne<CompanyFinancialProfile>(`SELECT * FROM company_financial_profile WHERE client_id = ?`, [clientId], db);
+
+export async function upsertFinancialProfile(clientId: number, input: FinancialProfileInput, db: Db = pool) {
+  await execute(
+    `INSERT INTO company_financial_profile
+      (client_id, financial_year_start_month, annual_turnover, monthly_transaction_volume, employee_count, monthly_invoice_count, current_accounting_software, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+      financial_year_start_month = VALUES(financial_year_start_month), annual_turnover = VALUES(annual_turnover),
+      monthly_transaction_volume = VALUES(monthly_transaction_volume), employee_count = VALUES(employee_count),
+      monthly_invoice_count = VALUES(monthly_invoice_count), current_accounting_software = VALUES(current_accounting_software), notes = VALUES(notes)`,
+    [clientId, input.financial_year_start_month, input.annual_turnover, input.monthly_transaction_volume, input.employee_count, input.monthly_invoice_count, input.current_accounting_software, input.notes],
+    db,
+  );
+  return getFinancialProfile(clientId, db);
+}
+
 export async function getClientDetail(id: number): Promise<ClientDetail | null> {
   const client = await findClientById(id);
   if (!client) return null;
-  const [branches, portalUsers, team] = await Promise.all([
+  const [branches, portalUsers, team, tax_details, stakeholders, financial_profile] = await Promise.all([
     query<ClientBranchRow>(`SELECT id, name, gstin, external_branch_ref FROM client_branches WHERE client_id = ? ORDER BY name`, [id]),
     query<ClientDetail["portalUsers"][number]>(
       `SELECT u.id AS user_id, u.full_name, u.email, cu.role, cu.can_approve
@@ -86,9 +208,23 @@ export async function getClientDetail(id: number): Promise<ClientDetail | null> 
         ORDER BY a.team_role, u.full_name`,
       [id],
     ),
+    getTaxDetails(id),
+    listStakeholders(id),
+    getFinancialProfile(id),
   ]);
   const coverage = (await teamCoverage([id])).get(id);
-  return { ...client, branches, portalUsers, team, package_roles: coverage?.package_roles ?? null, package_name: coverage?.package_name ?? null, missing_roles: coverage?.missing ?? [] };
+  return {
+    ...client,
+    branches,
+    portalUsers,
+    team,
+    package_roles: coverage?.package_roles ?? null,
+    package_name: coverage?.package_name ?? null,
+    missing_roles: coverage?.missing ?? [],
+    tax_details,
+    stakeholders,
+    financial_profile,
+  };
 }
 
 export async function insertClient(input: ClientInput, db: Db = pool): Promise<number> {

@@ -1,14 +1,20 @@
-import type { PoolConnection } from "mysql2/promise";
+﻿import type { PoolConnection } from "mysql2/promise";
 import { execute, pool, query, queryOne, type Param } from "../../database/connection.js";
 import { offsetOf, type Paged } from "../../utils/pagination.js";
-import { ONBOARDING_STAGES, type OnboardingCaseRow, type OnboardingStage, type StageCounts } from "./onboarding.types.js";
-import type { AssessmentInput, OnboardingListQuery } from "./onboarding.validation.js";
+import {
+  ONBOARDING_STAGES,
+  type OnboardingCaseRow,
+  type OnboardingServiceRequirements,
+  type OnboardingStage,
+  type StageCounts,
+} from "./onboarding.types.js";
+import type { AssessmentInput, OnboardingListQuery, ServiceRequirementsInput } from "./onboarding.validation.js";
 
 type Db = PoolConnection | typeof pool;
 
 const SELECT = `
   SELECT oc.id, oc.client_id, COALESCE(c.trade_name, c.legal_name) AS client_name, c.legal_name, c.status AS client_status,
-         c.gstin, c.state, oc.stage, oc.monthly_transaction_volume, oc.complexity, oc.notes,
+         c.business_type, c.gstin, c.state, oc.stage, oc.monthly_transaction_volume, oc.complexity, oc.notes,
          u.full_name AS assessed_by_name, oc.suggested_package_id, p.name AS suggested_package_name, oc.suggested_monthly_fee,
          oc.proposal_message, oc.proposal_sent_at, oc.accepted_at, ab.full_name AS accepted_by_name, oc.accepted_via,
          (SELECT COUNT(*) FROM client_users cu JOIN users ou ON ou.id = cu.user_id WHERE cu.client_id = oc.client_id AND cu.role = 'owner' AND ou.status = 'active') AS owner_logins,
@@ -112,4 +118,20 @@ export function clientProposal(clientId: number) {
       ORDER BY oc.id DESC LIMIT 1`,
     [clientId],
   );
+}
+
+export const getServiceRequirements = (caseId: number, db: Db = pool) =>
+  queryOne<OnboardingServiceRequirements>(`SELECT * FROM onboarding_service_requirements WHERE case_id = ?`, [caseId], db);
+
+export async function upsertServiceRequirements(caseId: number, input: ServiceRequirementsInput, db: Db = pool) {
+  await execute(
+    `INSERT INTO onboarding_service_requirements (case_id, bookkeeping, gst_filing, income_tax_filing, payroll, audit_support, other_services, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+      bookkeeping = VALUES(bookkeeping), gst_filing = VALUES(gst_filing), income_tax_filing = VALUES(income_tax_filing),
+      payroll = VALUES(payroll), audit_support = VALUES(audit_support), other_services = VALUES(other_services), notes = VALUES(notes)`,
+    [caseId, input.bookkeeping ? 1 : 0, input.gst_filing ? 1 : 0, input.income_tax_filing ? 1 : 0, input.payroll ? 1 : 0, input.audit_support ? 1 : 0, input.other_services, input.notes],
+    db,
+  );
+  return getServiceRequirements(caseId, db);
 }

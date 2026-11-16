@@ -1,4 +1,4 @@
-import type { Request, Response } from "express";
+﻿import type { Request, Response } from "express";
 import type { IdParam } from "../../middleware/validate.js";
 import * as service from "./client.service.js";
 import type { BranchParams, ClientListQuery } from "./client.validation.js";
@@ -35,4 +35,45 @@ export async function updateBranch(req: Request, res: Response) {
 export async function removeBranch(req: Request, res: Response) {
   const p = res.locals.params as BranchParams;
   res.json(await service.removeBranch(req.user!, p.id, p.branchId));
+}
+
+export async function getTaxDetails(_req: Request, res: Response) {
+  const c = await service.getClient((res.locals.params as IdParam).id);
+  res.json(c.tax_details ?? null);
+}
+
+export async function saveTaxDetails(req: Request, res: Response) {
+  res.json(await service.saveTaxDetails(req.user!, (res.locals.params as IdParam).id, req.body));
+}
+
+export async function listStakeholders(_req: Request, res: Response) {
+  res.json(await service.listStakeholders((res.locals.params as IdParam).id));
+}
+
+export async function saveStakeholders(req: Request, res: Response) {
+  res.json(await service.saveStakeholders(req.user!, (res.locals.params as IdParam).id, req.body.stakeholders));
+}
+
+export async function addStakeholder(req: Request, res: Response) {
+  res.status(201).json(await service.addStakeholder(req.user!, (res.locals.params as IdParam).id, req.body));
+}
+
+export async function updateStakeholder(req: Request, res: Response) {
+  const p = res.locals.params as { id: number; stakeholderId: number };
+  res.json(await service.updateStakeholder(req.user!, p.id, p.stakeholderId, req.body));
+}
+
+export async function removeStakeholder(req: Request, res: Response) {
+  const p = res.locals.params as { id: number; stakeholderId: number };
+  await service.removeStakeholder(req.user!, p.id, p.stakeholderId);
+  res.status(204).end();
+}
+
+export async function getFinancialProfile(_req: Request, res: Response) {
+  const c = await service.getClient((res.locals.params as IdParam).id);
+  res.json(c.financial_profile ?? null);
+}
+
+export async function saveFinancialProfile(req: Request, res: Response) {
+  res.json(await service.saveFinancialProfile(req.user!, (res.locals.params as IdParam).id, req.body));
 }

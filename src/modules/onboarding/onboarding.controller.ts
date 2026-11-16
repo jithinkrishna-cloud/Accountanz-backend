@@ -1,4 +1,4 @@
-import type { Request, Response } from "express";
+﻿import type { Request, Response } from "express";
 import type { IdParam } from "../../middleware/validate.js";
 import * as service from "./onboarding.service.js";
 import type { OnboardingListQuery } from "./onboarding.validation.js";
@@ -23,4 +23,13 @@ export async function saveAssessment(req: Request, res: Response) {
 
 export async function changeStage(req: Request, res: Response) {
   res.json(await service.changeStage(req.user!, id(res), req.body));
+}
+
+export async function getServiceRequirements(_req: Request, res: Response) {
+  const c = await service.getCase(id(res));
+  res.json(c.service_requirements ?? null);
+}
+
+export async function saveServiceRequirements(req: Request, res: Response) {
+  res.json(await service.saveServiceRequirements(req.user!, id(res), req.body));
 }

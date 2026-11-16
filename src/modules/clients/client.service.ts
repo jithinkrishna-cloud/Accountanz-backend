@@ -1,4 +1,4 @@
-import { withTransaction } from "../../database/connection.js";
+﻿import { withTransaction } from "../../database/connection.js";
 import { env } from "../../config/env.js";
 import { inviteEmail } from "../../emails/templates.js";
 import { sha256 } from "../../utils/crypto.js";
@@ -9,7 +9,16 @@ import type { AuthUser } from "../../types/auth.types.js";
 import { AppError } from "../../utils/app-error.js";
 import { recordAudit } from "../audit/audit.service.js";
 import * as repo from "./client.repository.js";
-import type { BranchInput, ClientInput, ClientListQuery, ClientUpdateInput, InviteClientUserInput } from "./client.validation.js";
+import type {
+  BranchInput,
+  ClientInput,
+  ClientListQuery,
+  ClientUpdateInput,
+  CompanyTaxDetailsInput,
+  FinancialProfileInput,
+  InviteClientUserInput,
+  StakeholderInput,
+} from "./client.validation.js";
 
 export const listClients = (q: ClientListQuery) => repo.listClients(q);
 
@@ -53,11 +62,6 @@ export async function updateClient(actor: AuthUser, id: number, input: ClientUpd
 
 const CLIENT_INVITE_DAYS = 7;
 
-/**
- * Gives a client's own person a portal login: creates an invited account (owner → client_owner,
- * member → client_member), links it to the company, and emails a one-time link to set a password.
- * Owners can always approve; members only when allowed.
- */
 export async function inviteClientUser(actor: AuthUser, clientId: number, input: InviteClientUserInput) {
   const client = await repo.findClientById(clientId);
   if (!client) throw AppError.notFound("Client");
@@ -82,7 +86,7 @@ export async function inviteClientUser(actor: AuthUser, clientId: number, input:
   return { client: await getClient(clientId), invite_url: url, email_sent: mail.sent };
 }
 
-// ── Branches ──
+// Branches
 async function assertBranchGstinFree(clientId: number, gstin: string | null) {
   if (!gstin) return;
   if (await repo.findOtherClientWithGstin(gstin, clientId)) {
@@ -119,7 +123,6 @@ export async function updateBranch(actor: AuthUser, clientId: number, branchId: 
   return getClient(clientId);
 }
 
-/** Nothing else references a branch yet, so removal is a plain delete (audited). */
 export async function removeBranch(actor: AuthUser, clientId: number, branchId: number) {
   await requireOpenClient(clientId);
   const branch = await repo.findBranch(clientId, branchId);
@@ -129,4 +132,54 @@ export async function removeBranch(actor: AuthUser, clientId: number, branchId: 
     await recordAudit(actor, { action: "Branch removed", entityType: "ClientBranch", entityId: branchId, clientId, details: branch.name }, conn);
   });
   return getClient(clientId);
+}
+
+// Progressive onboarding entities (additive)
+export async function saveTaxDetails(actor: AuthUser, clientId: number, input: CompanyTaxDetailsInput) {
+  await getClient(clientId);
+  const details = await repo.upsertTaxDetails(clientId, input);
+  await recordAudit(actor, { action: "Client tax details saved", entityType: "Client", entityId: clientId, clientId });
+  return details;
+}
+
+export async function listStakeholders(clientId: number) {
+  await getClient(clientId);
+  return repo.listStakeholders(clientId);
+}
+
+export async function saveStakeholders(actor: AuthUser, clientId: number, stakeholders: StakeholderInput[]) {
+  await getClient(clientId);
+  const rows = await repo.replaceStakeholders(clientId, stakeholders);
+  await recordAudit(actor, { action: "Client stakeholders saved", entityType: "Client", entityId: clientId, clientId, details: `${rows.length} stakeholder(s)` });
+  return rows;
+}
+
+export async function addStakeholder(actor: AuthUser, clientId: number, input: StakeholderInput) {
+  await getClient(clientId);
+  const id = await repo.insertStakeholder(clientId, input);
+  await recordAudit(actor, { action: "Client stakeholder added", entityType: "Client", entityId: clientId, clientId, details: input.full_name });
+  return repo.findStakeholder(clientId, id);
+}
+
+export async function updateStakeholder(actor: AuthUser, clientId: number, stakeholderId: number, input: StakeholderInput) {
+  await getClient(clientId);
+  if (!(await repo.findStakeholder(clientId, stakeholderId))) throw AppError.notFound("Stakeholder");
+  await repo.updateStakeholder(stakeholderId, input);
+  await recordAudit(actor, { action: "Client stakeholder updated", entityType: "Client", entityId: clientId, clientId, details: input.full_name });
+  return repo.findStakeholder(clientId, stakeholderId);
+}
+
+export async function removeStakeholder(actor: AuthUser, clientId: number, stakeholderId: number) {
+  await getClient(clientId);
+  const row = await repo.findStakeholder(clientId, stakeholderId);
+  if (!row) throw AppError.notFound("Stakeholder");
+  await repo.deleteStakeholder(stakeholderId);
+  await recordAudit(actor, { action: "Client stakeholder removed", entityType: "Client", entityId: clientId, clientId, details: row.full_name });
+}
+
+export async function saveFinancialProfile(actor: AuthUser, clientId: number, input: FinancialProfileInput) {
+  await getClient(clientId);
+  const profile = await repo.upsertFinancialProfile(clientId, input);
+  await recordAudit(actor, { action: "Client financial profile saved", entityType: "Client", entityId: clientId, clientId });
+  return profile;
 }

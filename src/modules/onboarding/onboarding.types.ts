@@ -1,4 +1,4 @@
-export const ONBOARDING_STAGES = ["registered", "assessment", "proposal_sent", "accepted", "rejected"] as const;
+﻿export const ONBOARDING_STAGES = ["registered", "assessment", "proposal_sent", "accepted", "rejected"] as const;
 export type OnboardingStage = (typeof ONBOARDING_STAGES)[number];
 
 export const COMPLEXITIES = ["low", "medium", "high"] as const;
@@ -19,6 +19,7 @@ export interface OnboardingCaseRow {
   client_name: string;
   legal_name: string;
   client_status: string;
+  business_type: string | null;
   gstin: string | null;
   state: string | null;
   stage: OnboardingStage;
@@ -46,3 +47,30 @@ export interface OnboardingCaseRow {
 }
 
 export type StageCounts = Record<OnboardingStage, number>;
+
+export interface OnboardingServiceRequirements {
+  case_id: number;
+  bookkeeping: 0 | 1 | boolean;
+  gst_filing: 0 | 1 | boolean;
+  income_tax_filing: 0 | 1 | boolean;
+  payroll: 0 | 1 | boolean;
+  audit_support: 0 | 1 | boolean;
+  other_services: string | null;
+  notes: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface OnboardingReadiness {
+  complete: boolean;
+  missing: string[];
+  sections: {
+    company_profile: boolean;
+    primary_contact: boolean;
+    tax_details: boolean;
+    stakeholders: boolean;
+    financial_profile: boolean;
+    service_requirements: boolean;
+    assessment: boolean;
+  };
+}
