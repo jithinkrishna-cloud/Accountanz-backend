@@ -1,4 +1,4 @@
-import type { Request, Response } from "express";
+﻿import type { Request, Response } from "express";
 import * as service from "./auth.service.js";
 import { REFRESH_COOKIE, clearAuthCookies, setAuthCookies } from "./auth.tokens.js";
 
@@ -12,6 +12,10 @@ export async function register(req: Request, res: Response) {
   const { user, session } = await service.register(req.body);
   setAuthCookies(res, session.accessToken, session.refreshToken);
   res.status(201).json({ user });
+}
+
+export async function registerAccountant(req: Request, res: Response) {
+  res.status(201).json(await service.registerAccountant(req.body));
 }
 
 export async function refresh(req: Request, res: Response) {

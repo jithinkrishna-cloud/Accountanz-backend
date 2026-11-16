@@ -1,11 +1,7 @@
-/**
- * Event e-mails. Each function loads what it needs, picks recipients and sends one templated e-mail.
- * They never throw: callers fire them after their transaction commits (`void notifyX(...)`), so a mail
- * problem can't undo or slow down the action. Idempotency keys stop duplicates on retries.
- */
-import { approvalDecidedEmail, approvalRequestedEmail, clientMessageEmail, companyRegisteredEmail, documentRequestedEmail, meetingCancelledEmail, meetingRequestDeclinedEmail, meetingRequestedEmail, meetingScheduledEmail, mentionedEmail, proposalAcceptedEmail, proposalSentEmail, reportPublishedEmail, teamMessageEmail, documentReceivedEmail, invoiceIssuedEmail, taskAssignedEmail, taskReviewedEmail, taskSubmittedEmail } from "../../emails/templates.js";
+﻿import { approvalDecidedEmail, approvalRequestedEmail, clientMessageEmail, companyRegisteredEmail, documentRequestedEmail, meetingCancelledEmail, meetingRequestDeclinedEmail, meetingRequestedEmail, meetingScheduledEmail, mentionedEmail, proposalAcceptedEmail, proposalSentEmail, reportPublishedEmail, teamMessageEmail, documentReceivedEmail, invoiceIssuedEmail, taskAssignedEmail, taskReviewedEmail, taskSubmittedEmail } from "../../emails/templates.js";
 import { logger } from "../../utils/logger.js";
 import { sendMail } from "../../utils/mailer.js";
+import { humanize } from "../../utils/format.js";
 import { findMeetingRequest } from "../communication/communication.repository.js";
 import { findTask } from "../tasks/task.repository.js";
 import * as repo from "./notification.repository.js";
@@ -148,7 +144,23 @@ export const notifyCompanyRegistered = (caseId: number) =>
     }
   });
 
-// ── Staff → client delivery ──
+/** An accountant submitted a registration: every admin hears so someone can approve it. */
+export const notifyAccountantRegistrationPending = (d: { userId: number; name: string; email: string; role: string }) =>
+  safely("accountant-registration-pending", async () => {
+    for (const a of await repo.listAdminContacts()) {
+      const subject = `Accountant registration pending: ${d.name}`;
+      const text = `Hi ${a.full_name},\n\n${d.name} (${d.email}) applied as ${humanize(d.role)}.\nReview and approve in Admin > Accountants.`;
+      await sendMail({
+        to: a.email,
+        subject,
+        html: `<p>Hi ${a.full_name},</p><p><strong>${d.name}</strong> (${d.email}) applied as <strong>${humanize(d.role)}</strong>.</p><p>Review and approve in <strong>Admin &gt; Accountants</strong>.</p>`,
+        text,
+        idempotencyKey: `accountant-registration/${d.userId}/${a.email}`,
+      });
+    }
+  });
+
+// — Staff → client delivery —
 export const notifyDocumentRequested = (requestId: number, d: { clientId: number; requester: string; description: string; period: string | null; dueDate: string | null }) =>
   safely("document-requested", async () => {
     const clientName = await repo.findClientName(d.clientId);

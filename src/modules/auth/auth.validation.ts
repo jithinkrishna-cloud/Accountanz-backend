@@ -1,4 +1,4 @@
-import { z } from "zod";
+﻿import { z } from "zod";
 import { prospectBodySchema } from "../onboarding/onboarding.validation.js";
 
 const email = z.email("Enter a valid email address").max(255).transform((v) => v.trim().toLowerCase());
@@ -24,6 +24,16 @@ export const registerSchema = z.object({
   company: prospectBodySchema.omit({ notes: true }),
 });
 
+export const accountantRoleSchema = z.enum(["bookkeeper", "finance_manager", "cfo"]);
+
+export const registerAccountantSchema = z.object({
+  fullName: z.string().trim().min(2, "Enter your full name").max(150),
+  email,
+  phone: z.string().trim().max(30).optional().transform((v) => (v ? v : null)),
+  password: passwordSchema,
+  portal_role: accountantRoleSchema,
+});
+
 export const forgotPasswordSchema = z.object({ email });
 
 export const resetPasswordSchema = z.object({
@@ -33,4 +43,5 @@ export const resetPasswordSchema = z.object({
 
 export type LoginInput = z.infer<typeof loginSchema>;
 export type RegisterInput = z.infer<typeof registerSchema>;
+export type RegisterAccountantInput = z.infer<typeof registerAccountantSchema>;
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;

@@ -1,4 +1,4 @@
-import bcrypt from "bcryptjs";
+﻿import bcrypt from "bcryptjs";
 import type { PoolConnection } from "mysql2/promise";
 import { env } from "../../config/env.js";
 import { pool, withTransaction } from "../../database/connection.js";
@@ -11,14 +11,15 @@ import { humanize } from "../../utils/format.js";
 import { sendMail } from "../../utils/mailer.js";
 import { recordAudit } from "../audit/audit.service.js";
 import { linkClientUser } from "../clients/client.repository.js";
-import { notifyCompanyRegistered } from "../notifications/notification.service.js";
+import { notifyAccountantRegistrationPending, notifyCompanyRegistered } from "../notifications/notification.service.js";
 import { openProspect } from "../onboarding/onboarding.service.js";
+import { insertStaffProfile } from "../staff/staff.repository.js";
 import { findUserByEmail, findUserById, insertUser, isRejectedStaff, setPassword, touchLastLogin } from "../users/user.repository.js";
 import type { PublicUser, UserRow } from "../users/user.types.js";
 import * as repo from "./auth.repository.js";
 import { refreshTtlMs, signAccessToken } from "./auth.tokens.js";
 import type { IssuedSession, UserTokenPurpose } from "./auth.types.js";
-import type { LoginInput, RegisterInput, ResetPasswordInput } from "./auth.validation.js";
+import type { LoginInput, RegisterAccountantInput, RegisterInput, ResetPasswordInput } from "./auth.validation.js";
 
 const BCRYPT_ROUNDS = 12;
 const RESET_TTL_MS = 60 * 60 * 1000; // 1 hour
@@ -85,6 +86,30 @@ export async function register(input: RegisterInput): Promise<{ user: PublicUser
   });
   void notifyCompanyRegistered(result.caseId);
   return { user: result.user, session: result.session };
+}
+
+/**
+ * An accountant applies to join the platform. The account stays inactive (pending admin approval)
+ * until an admin verifies and activates it.
+ */
+export async function registerAccountant(input: RegisterAccountantInput): Promise<{ message: string }> {
+  if (await findUserByEmail(input.email)) {
+    const message = "An account with this email already exists";
+    throw new AppError("CONFLICT", message, { fieldErrors: { email: [message] } });
+  }
+  const passwordHash = await hashPassword(input.password);
+  const userId = await withTransaction(async (conn) => {
+    const id = await insertUser(
+      { email: input.email, fullName: input.fullName, phone: input.phone, role: input.portal_role, passwordHash, status: "disabled" },
+      conn,
+    );
+    await insertStaffProfile(id, "accountant", conn);
+    const actor = toAuthUser((await findUserById(id, conn))!);
+    await recordAudit(actor, { action: "Accountant registration requested", entityType: "User", entityId: id, details: `${input.email} as ${input.portal_role}` }, conn);
+    return id;
+  });
+  void notifyAccountantRegistrationPending({ userId, name: input.fullName, email: input.email, role: input.portal_role });
+  return { message: "Your registration has been submitted. An administrator will review and approve your account before you can sign in." };
 }
 
 /**

@@ -35,7 +35,7 @@ export interface NewUser {
   phone?: string | null;
   role: PortalRole;
   passwordHash: string | null;
-  status: "invited" | "active";
+  status: "invited" | "active" | "disabled";
 }
 
 export async function insertUser(u: NewUser, db: Db = pool): Promise<number> {
