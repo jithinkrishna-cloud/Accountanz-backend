@@ -87,8 +87,8 @@ export const branches = (clientId: number) =>
   query<{ id: number; name: string; gstin: string | null }>(`SELECT id, name, gstin FROM client_branches WHERE client_id = ? ORDER BY name`, [clientId]);
 
 export const team = (clientId: number) =>
-  query<{ user_id: number; full_name: string; email: string; team_role: string }>(
-    `SELECT u.id AS user_id, u.full_name, u.email, a.team_role FROM assignments a JOIN users u ON u.id = a.user_id
+  query<{ assignment_id: number; user_id: number; full_name: string; email: string; team_role: string }>(
+    `SELECT a.id AS assignment_id, u.id AS user_id, u.full_name, u.email, a.team_role FROM assignments a JOIN users u ON u.id = a.user_id
       WHERE a.client_id = ? AND ${activeAssignmentSql("a")} AND u.status = 'active'
       ORDER BY FIELD(a.team_role, 'cfo', 'finance_manager', 'reviewer', 'bookkeeper'), u.full_name`,
     [clientId],

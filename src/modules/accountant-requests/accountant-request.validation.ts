@@ -2,17 +2,22 @@ import { z } from "zod";
 import { optionalText } from "../../utils/zod-helpers.js";
 import { TEAM_ROLES } from "../assignments/assignment.types.js";
 
-export const accountantRequestSchema = z.object({
-  kind: z.enum(["join_team", "one_off"]).default("join_team"),
-  message: z.string().trim().min(10, "Tell us a little about the work (at least 10 characters)").max(2000),
-  preferred_start: z
-    .string()
-    .trim()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD")
-    .nullish()
-    .or(z.literal(""))
-    .transform((v) => (v ? v : null)),
-});
+export const accountantRequestSchema = z
+  .object({
+    kind: z.enum(["join_team", "one_off", "replace"]).default("join_team"),
+    /** kind=replace: the assignment (team member) to hand over from. */
+    replaces_assignment_id: z.coerce.number().int().positive().nullish().transform((v) => v ?? null),
+    message: z.string().trim().min(10, "Tell us a little more (at least 10 characters)").max(2000),
+    preferred_start: z
+      .string()
+      .trim()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD")
+      .nullish()
+      .or(z.literal(""))
+      .transform((v) => (v ? v : null)),
+  })
+  .refine((v) => v.kind !== "replace" || !!v.replaces_assignment_id, { message: "Choose who they should replace", path: ["replaces_assignment_id"] })
+  .transform((v) => ({ ...v, replaces_assignment_id: v.kind === "replace" ? v.replaces_assignment_id : null }));
 
 const isoDate = z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD");
 

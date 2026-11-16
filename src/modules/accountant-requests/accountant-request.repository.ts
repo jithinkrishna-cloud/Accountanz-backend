@@ -4,7 +4,7 @@ import { activeAssignmentSql } from "../access/client-access.js";
 
 type Db = PoolConnection | typeof pool;
 
-export type RequestKind = "join_team" | "one_off";
+export type RequestKind = "join_team" | "one_off" | "replace";
 export type RequestStatus = "pending" | "approved" | "declined" | "withdrawn";
 
 /**
@@ -77,6 +77,11 @@ export interface RequestRow {
   requested_by: number | null;
   requester_name: string | null;
   kind: RequestKind;
+  /** kind=replace: the team member to hand over from (their assignment, name and role). */
+  replaces_assignment_id: number | null;
+  replaces_name: string | null;
+  replaces_role: string | null;
+  replaces_user_id: number | null;
   message: string;
   preferred_start: string | null;
   status: RequestStatus;
@@ -87,11 +92,15 @@ export interface RequestRow {
 }
 
 const SELECT = `SELECT r.id, r.client_id, COALESCE(c.trade_name, c.legal_name) AS client_name, r.accountant_id, a.full_name AS accountant_name,
-                       a.portal_role AS accountant_role, r.requested_by, q.full_name AS requester_name, r.kind, r.message, r.preferred_start,
+                       a.portal_role AS accountant_role, r.requested_by, q.full_name AS requester_name, r.kind,
+                       r.replaces_assignment_id, ru.full_name AS replaces_name, ra.team_role AS replaces_role, ra.user_id AS replaces_user_id,
+                       r.message, r.preferred_start,
                        r.status, d.full_name AS decided_by_name, r.decided_at, r.decision_note, r.created_at
                   FROM accountant_requests r
                   JOIN clients c ON c.id = r.client_id
                   JOIN users a ON a.id = r.accountant_id
+                  LEFT JOIN assignments ra ON ra.id = r.replaces_assignment_id
+                  LEFT JOIN users ru ON ru.id = ra.user_id
                   LEFT JOIN users q ON q.id = r.requested_by
                   LEFT JOIN users d ON d.id = r.decided_by`;
 
@@ -105,16 +114,28 @@ export const adminRequests = (status?: RequestStatus) =>
 export const pendingCount = async () => (await queryOne<{ n: number }>(`SELECT COUNT(*) AS n FROM accountant_requests WHERE status = 'pending'`))?.n ?? 0;
 
 export async function insertRequest(
-  r: { clientId: number; accountantId: number; requestedBy: number; kind: RequestKind; message: string; preferredStart: string | null },
+  r: { clientId: number; accountantId: number; requestedBy: number; kind: RequestKind; replacesAssignmentId: number | null; message: string; preferredStart: string | null },
   db: Db = pool,
 ) {
   const res = await execute(
-    `INSERT INTO accountant_requests (client_id, accountant_id, requested_by, kind, message, preferred_start) VALUES (?, ?, ?, ?, ?, ?)`,
-    [r.clientId, r.accountantId, r.requestedBy, r.kind, r.message, r.preferredStart],
+    `INSERT INTO accountant_requests (client_id, accountant_id, requested_by, kind, replaces_assignment_id, message, preferred_start) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [r.clientId, r.accountantId, r.requestedBy, r.kind, r.replacesAssignmentId, r.message, r.preferredStart],
     db,
   );
   return res.insertId;
 }
+
+/** An active assignment on this client (the team member a client wants replaced). */
+export const activeTeamAssignment = (clientId: number, assignmentId: number) =>
+  queryOne<{ id: number; user_id: number; full_name: string; email: string; team_role: string; journl_access: 0 | 1 }>(
+    `SELECT a.id, a.user_id, u.full_name, u.email, a.team_role, a.journl_access
+       FROM assignments a JOIN users u ON u.id = a.user_id
+      WHERE a.id = ? AND a.client_id = ? AND ${activeAssignmentSql("a")}`,
+    [assignmentId, clientId],
+  );
+
+export const pendingReplaceFor = async (assignmentId: number) =>
+  !!(await queryOne<{ id: number }>(`SELECT id FROM accountant_requests WHERE replaces_assignment_id = ? AND status = 'pending' LIMIT 1`, [assignmentId]));
 
 export async function setStatus(id: number, status: RequestStatus, decidedBy: number | null, note: string | null, db: Db = pool) {
   const res = await execute(

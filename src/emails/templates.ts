@@ -430,9 +430,14 @@ export function accountantRequestedEmail(d: { recipientName: string; clientName:
 }
 
 /** Accountanz approved or declined a client's accountant request: to the person who asked. */
-export function accountantRequestDecidedEmail(d: { recipientName: string; accountant: string; decision: "approved" | "declined"; note: string | null; decidedBy: string }): EmailContent {
+export function accountantRequestDecidedEmail(d: { recipientName: string; accountant: string; decision: "approved" | "declined"; note: string | null; decidedBy: string; replaces?: string | null; handedOver?: boolean }): EmailContent {
   const url = appUrl("/app/explore");
   const approved = d.decision === "approved";
+  const approvedText = d.replaces
+    ? d.handedOver
+      ? `${d.decidedBy} approved your request. ${d.accountant} has taken over from ${d.replaces} on your accounting team.`
+      : `${d.decidedBy} approved your request. We'll hand ${d.replaces}'s work over to ${d.accountant} and let you know when they start.`
+    : `${d.decidedBy} approved your request. We'll add ${d.accountant} to your accounting team and let you know when they start.`;
   return {
     subject: approved ? `Your request for ${d.accountant} was approved` : `About your request for ${d.accountant}`,
     html: layout({
@@ -440,10 +445,31 @@ export function accountantRequestDecidedEmail(d: { recipientName: string; accoun
       preheader: `${d.decidedBy} replied to your request`,
       body:
         paragraph(`Hi ${d.recipientName},`) +
-        paragraph(approved ? `${d.decidedBy} approved your request. We'll add ${d.accountant} to your accounting team and let you know when they start.` : `${d.decidedBy} couldn't arrange ${d.accountant} this time.`) +
+        paragraph(approved ? approvedText : `${d.decidedBy} couldn't arrange ${d.accountant} this time.`) +
         (d.note ? quote(d.note) : "") +
         button("Open Explore", url),
     }),
-    text: plainText(`Hi ${d.recipientName},`, approved ? `Your request for ${d.accountant} was approved.` : `Your request for ${d.accountant} was declined.`, d.note ?? "", `Explore: ${url}`),
+    text: plainText(`Hi ${d.recipientName},`, approved ? approvedText : `Your request for ${d.accountant} was declined.`, d.note ?? "", `Explore: ${url}`),
+  };
+}
+
+/**
+ * An accountant's assignment on a client ended (e.g. handed over to someone else). Deliberately states only that it
+ * ended: no reason, and nothing the client wrote.
+ */
+export function assignmentEndedEmail(d: { recipientName: string; clientName: string; role: string; endedOn: string }): EmailContent {
+  const url = appUrl("/team/clients");
+  return {
+    subject: `Your assignment on ${d.clientName} has ended`,
+    html: layout({
+      title: `Your assignment on ${d.clientName} has ended`,
+      preheader: `Your ${d.role} assignment ended on ${formatDate(d.endedOn)}`,
+      body:
+        paragraph(`Hi ${d.recipientName},`) +
+        paragraph(`Your assignment on ${d.clientName} has ended. You no longer have access to their work, documents or JournL books. Accountanz will take care of handing over anything still open.`) +
+        facts([["Client", d.clientName], ["Role", d.role], ["Ended on", formatDate(d.endedOn) ?? d.endedOn]]) +
+        button("Open my clients", url),
+    }),
+    text: plainText(`Hi ${d.recipientName},`, `Your ${d.role} assignment on ${d.clientName} ended on ${formatDate(d.endedOn)}.`, `My clients: ${url}`),
   };
 }
