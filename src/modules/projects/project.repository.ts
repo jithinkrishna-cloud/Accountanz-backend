@@ -220,5 +220,34 @@ export async function summary(spaceId: number, assigneeId?: number) {
       WHERE i.space_id = ? ${a} ORDER BY ac.created_at DESC, ac.id DESC LIMIT 10`,
     p(spaceId),
   );
-  return { counts, byStatus, byPriority, byType, activity };
+  // Work in an "in progress" status: soonest due first, undated last.
+  const running = await query<{ number: number; title: string; type: string; priority: string; status_name: string; assignee_id: number | null; assignee_name: string | null; start_date: string | null; due_date: string | null }>(
+    `SELECT i.number, i.title, i.type, i.priority, st.name AS status_name, i.assignee_id, u.full_name AS assignee_name, i.start_date, i.due_date
+       FROM project_items i JOIN project_statuses st ON st.id = i.status_id LEFT JOIN users u ON u.id = i.assignee_id
+      WHERE i.space_id = ? AND st.category = 'in_progress' ${a}
+      ORDER BY i.due_date IS NULL, i.due_date, i.updated_at DESC LIMIT 12`,
+    p(spaceId),
+  );
+  // Due dates for the calendar: three months back to six ahead covers any month someone browses to in practice.
+  const due = await query<{ number: number; title: string; priority: string; status_category: StatusCategory; assignee_name: string | null; due_date: string }>(
+    `SELECT i.number, i.title, i.priority, st.category AS status_category, u.full_name AS assignee_name, i.due_date
+       FROM project_items i JOIN project_statuses st ON st.id = i.status_id LEFT JOIN users u ON u.id = i.assignee_id
+      WHERE i.space_id = ? AND i.due_date BETWEEN UTC_DATE() - INTERVAL 3 MONTH AND UTC_DATE() + INTERVAL 6 MONTH ${a}
+      ORDER BY i.due_date, i.number LIMIT 400`,
+    p(spaceId),
+  );
+  // Open and finished work per person (everyone, regardless of the assignee filter: it's the people card).
+  const byAssignee = await query<{ assignee_id: number; open: number; done: number }>(
+    `SELECT i.assignee_id, COALESCE(SUM(st.category <> 'done'), 0) AS open, COALESCE(SUM(st.category = 'done'), 0) AS done
+       FROM project_items i JOIN project_statuses st ON st.id = i.status_id
+      WHERE i.space_id = ? AND i.assignee_id IS NOT NULL GROUP BY i.assignee_id`,
+    [spaceId],
+  );
+  const activeSprint = await queryOne<{ id: number; name: string; start_date: string | null; end_date: string | null; item_count: number; done_count: number }>(
+    `SELECT sp.id, sp.name, sp.start_date, sp.end_date, COUNT(i.id) AS item_count, COALESCE(SUM(st.category = 'done'), 0) AS done_count
+       FROM project_sprints sp LEFT JOIN project_items i ON i.sprint_id = sp.id LEFT JOIN project_statuses st ON st.id = i.status_id
+      WHERE sp.space_id = ? AND sp.status = 'active' GROUP BY sp.id ORDER BY sp.start_date DESC LIMIT 1`,
+    [spaceId],
+  );
+  return { counts, byStatus, byPriority, byType, activity, running, due, byAssignee, activeSprint };
 }
