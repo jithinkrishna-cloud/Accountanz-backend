@@ -13,6 +13,8 @@ import { journlGateway } from "../integrations/journl.gateway.js";
 import { insertEngagement, updateEngagement as updateEngagementRow } from "../engagements/engagement.repository.js";
 import { acceptByClient } from "../onboarding/onboarding.service.js";
 import { clientProposal } from "../onboarding/onboarding.repository.js";
+import { syncCaseWithEngagement } from "../onboarding/onboarding.sync.js";
+import { pendingChangeForClient } from "../package-changes/package-change.repository.js";
 import { findPackageById, listPackages } from "../packages/package.repository.js";
 import * as repo from "./client-portal.repository.js";
 import { NOTIFICATION_PREFS, type ClientContext, type NotificationPrefs } from "./client-portal.types.js";
@@ -271,8 +273,8 @@ export async function updateSettings(ctx: ClientContext, input: SettingsInput) {
 
 /** Packages the client can choose from, and the package on their current engagement (if any). */
 export async function getPackages(ctx: ClientContext) {
-  const [all, current] = await Promise.all([listPackages(), repo.openEngagement(ctx.clientId)]);
-  return { items: all.filter((p) => p.is_active), current };
+  const [all, current, pending_change] = await Promise.all([listPackages(), repo.openEngagement(ctx.clientId), pendingChangeForClient(ctx.clientId)]);
+  return { items: all.filter((p) => p.is_active), current, pending_change };
 }
 
 /**
@@ -314,14 +316,16 @@ export async function choosePackage(actor: AuthUser, ctx: ClientContext, package
     if (!open) {
       const id = await insertEngagement({ client_id: ctx.clientId, package_id: pkg.id, start_date: null, renewal_date: null }, conn);
       await recordAudit(actor, { action: "Package chosen", entityType: "Engagement", entityId: id, clientId: ctx.clientId, details: `${pkg.name} chosen in the client portal; draft engagement #${id} opened` }, conn);
-      return;
+    } else {
+      if (open.package_id === pkg.id) return;
+      if (open.status !== "draft") {
+        throw AppError.conflict(`Your ${open.package_name} engagement is already ${open.status === "sent" ? "with you for acceptance" : open.status}. Request a package change instead.`);
+      }
+      await updateEngagementRow(open.id, { package_id: pkg.id }, conn);
+      await recordAudit(actor, { action: "Package chosen", entityType: "Engagement", entityId: open.id, clientId: ctx.clientId, details: `Changed from ${open.package_name} to ${pkg.name} in the client portal` }, conn);
     }
-    if (open.package_id === pkg.id) return;
-    if (open.status !== "draft") {
-      throw AppError.conflict(`Your ${open.package_name} engagement is already ${open.status === "sent" ? "with you for acceptance" : open.status}. Message your team to change package.`);
-    }
-    await updateEngagementRow(open.id, { package_id: pkg.id }, conn);
-    await recordAudit(actor, { action: "Package chosen", entityType: "Engagement", entityId: open.id, clientId: ctx.clientId, details: `Changed from ${open.package_name} to ${pkg.name} in the client portal` }, conn);
+    // The onboarding case takes the client's choice, so staff confirm it rather than assessing from scratch.
+    await syncCaseWithEngagement(actor, ctx.clientId, "client", conn);
   });
   return getPackages(ctx);
 }

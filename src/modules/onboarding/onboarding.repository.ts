@@ -15,16 +15,22 @@ type Db = PoolConnection | typeof pool;
 const SELECT = `
   SELECT oc.id, oc.client_id, COALESCE(c.trade_name, c.legal_name) AS client_name, c.legal_name, c.status AS client_status,
          c.business_type, c.gstin, c.state, oc.stage, oc.monthly_transaction_volume, oc.complexity, oc.notes,
-         u.full_name AS assessed_by_name, oc.suggested_package_id, p.name AS suggested_package_name, oc.suggested_monthly_fee,
+         u.full_name AS assessed_by_name, oc.suggested_package_id, p.name AS suggested_package_name, oc.suggested_monthly_fee, oc.package_source,
          oc.proposal_message, oc.proposal_sent_at, oc.accepted_at, ab.full_name AS accepted_by_name, oc.accepted_via,
          (SELECT COUNT(*) FROM client_users cu JOIN users ou ON ou.id = cu.user_id WHERE cu.client_id = oc.client_id AND cu.role = 'owner' AND ou.status = 'active') AS owner_logins,
-         e.id AS engagement_id, e.status AS engagement_status, oc.created_at, oc.updated_at
+         e.id AS engagement_id, e.status AS engagement_status, e.package_id AS engagement_package_id, ep.name AS engagement_package_name,
+         COALESCE(e.monthly_fee, ep.monthly_fee) AS engagement_monthly_fee,
+         pcr.id AS pending_change_id, tp.name AS pending_change_package_name, pcr.source AS pending_change_source,
+         oc.created_at, oc.updated_at
     FROM onboarding_cases oc
     JOIN clients c ON c.id = oc.client_id
     LEFT JOIN users u ON u.id = oc.assessed_by
     LEFT JOIN users ab ON ab.id = oc.accepted_by
     LEFT JOIN packages p ON p.id = oc.suggested_package_id
-    LEFT JOIN engagements e ON e.id = (SELECT MAX(e2.id) FROM engagements e2 WHERE e2.client_id = oc.client_id)`;
+    LEFT JOIN engagements e ON e.id = (SELECT MAX(e2.id) FROM engagements e2 WHERE e2.client_id = oc.client_id)
+    LEFT JOIN packages ep ON ep.id = e.package_id
+    LEFT JOIN package_change_requests pcr ON pcr.id = (SELECT MAX(r.id) FROM package_change_requests r WHERE r.engagement_id = e.id AND r.status = 'pending')
+    LEFT JOIN packages tp ON tp.id = pcr.to_package_id`;
 
 export async function listCases(q: OnboardingListQuery): Promise<Paged<OnboardingCaseRow>> {
   const where: string[] = [];
@@ -63,16 +69,45 @@ export function findCase(id: number, db: Db = pool) {
   return queryOne<OnboardingCaseRow>(`${SELECT} WHERE oc.id = ?`, [id], db);
 }
 
+export interface LockedCase {
+  id: number;
+  client_id: number;
+  stage: OnboardingStage;
+  complexity: string | null;
+  suggested_package_id: number | null;
+  suggested_monthly_fee: number | null;
+  package_source: "team" | "client" | null;
+}
+
+const LOCK_COLUMNS = "id, client_id, stage, complexity, suggested_package_id, suggested_monthly_fee, package_source";
+
 /** Locks the case row for a stage change. */
 export function lockCase(id: number, db: PoolConnection) {
-  return queryOne<{
-    id: number;
-    client_id: number;
-    stage: OnboardingStage;
-    complexity: string | null;
-    suggested_package_id: number | null;
-    suggested_monthly_fee: number | null;
-  }>(`SELECT id, client_id, stage, complexity, suggested_package_id, suggested_monthly_fee FROM onboarding_cases WHERE id = ? FOR UPDATE`, [id], db);
+  return queryOne<LockedCase>(`SELECT ${LOCK_COLUMNS} FROM onboarding_cases WHERE id = ? FOR UPDATE`, [id], db);
+}
+
+/** Locks the client's latest onboarding case (a client normally has one), to keep it in step with the engagement. */
+export function lockLatestCaseForClient(clientId: number, db: PoolConnection) {
+  return queryOne<LockedCase>(`SELECT ${LOCK_COLUMNS} FROM onboarding_cases WHERE client_id = ? ORDER BY id DESC LIMIT 1 FOR UPDATE`, [clientId], db);
+}
+
+/** Copies the engagement's package and fee onto the case, optionally moving its stage or marking it accepted. */
+export async function syncPackage(
+  id: number,
+  input: { packageId: number; fee: number | null; source: "team" | "client"; stage?: OnboardingStage; acceptedBy?: number; acceptedVia?: "client" | "team" },
+  db: Db = pool,
+) {
+  const accepting = input.acceptedVia ? 1 : 0;
+  await execute(
+    `UPDATE onboarding_cases
+        SET suggested_package_id = ?, suggested_monthly_fee = ?, package_source = ?, stage = COALESCE(?, stage),
+            accepted_at  = IF(? = 1, COALESCE(accepted_at, UTC_TIMESTAMP()), accepted_at),
+            accepted_by  = IF(? = 1, COALESCE(accepted_by, ?), accepted_by),
+            accepted_via = IF(? = 1, COALESCE(accepted_via, ?), accepted_via)
+      WHERE id = ?`,
+    [input.packageId, input.fee, input.source, input.stage ?? null, accepting, accepting, input.acceptedBy ?? null, accepting, input.acceptedVia ?? null, id],
+    db,
+  );
 }
 
 export async function insertCase(clientId: number, notes: string | null, db: Db = pool) {
@@ -80,12 +115,12 @@ export async function insertCase(clientId: number, notes: string | null, db: Db 
   return r.insertId;
 }
 
-export async function updateAssessment(id: number, input: AssessmentInput, actorId: number, db: Db = pool) {
+export async function updateAssessment(id: number, input: AssessmentInput, packageSource: "team" | "client" | null, actorId: number, db: Db = pool) {
   await execute(
     `UPDATE onboarding_cases
-        SET monthly_transaction_volume = ?, complexity = ?, suggested_package_id = ?, suggested_monthly_fee = ?, notes = ?, proposal_message = ?, assessed_by = ?
+        SET monthly_transaction_volume = ?, complexity = ?, suggested_package_id = ?, suggested_monthly_fee = ?, package_source = ?, notes = ?, proposal_message = ?, assessed_by = ?
       WHERE id = ?`,
-    [input.monthly_transaction_volume, input.complexity, input.suggested_package_id, input.suggested_monthly_fee, input.notes, input.proposal_message ?? null, actorId, id],
+    [input.monthly_transaction_volume, input.complexity, input.suggested_package_id, input.suggested_monthly_fee, packageSource, input.notes, input.proposal_message ?? null, actorId, id],
     db,
   );
 }

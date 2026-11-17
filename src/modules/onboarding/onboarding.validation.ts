@@ -37,6 +37,8 @@ export const assessmentBodySchema = z.object({
 export const stageBodySchema = z.object({
   to: z.enum(ONBOARDING_STAGES),
   reason: optionalText(500),
+  /** Sending a proposal while onboarding data is incomplete needs a reason (recorded in the audit log). */
+  override_reason: optionalText(500),
 });
 
 export const onboardingListQuerySchema = listQuerySchema.extend({

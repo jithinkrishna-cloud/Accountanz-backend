@@ -2,7 +2,10 @@ import { Router, type RequestHandler } from "express";
 import { authenticate } from "../../middleware/authenticate.js";
 import { authorize } from "../../middleware/authorize.js";
 import { documentUpload, multipartFields } from "../../middleware/upload.js";
-import { idParam, validate } from "../../middleware/validate.js";
+import { idParam, validate, type IdParam } from "../../middleware/validate.js";
+import * as packageChanges from "../package-changes/package-change.service.js";
+import { packageChangeRequestSchema } from "../package-changes/package-change.validation.js";
+import type { ClientContext } from "./client-portal.types.js";
 import { CLIENT_ROLES } from "../../types/auth.types.js";
 import * as c from "./client-portal.controller.js";
 import { requireContext } from "./client-portal.service.js";
@@ -56,6 +59,13 @@ clientPortalRoutes.get("/packages", c.packages);
 clientPortalRoutes.get("/proposal", c.proposal);
 clientPortalRoutes.post("/proposal/accept", c.acceptProposal);
 clientPortalRoutes.post("/packages/:id/choose", validate({ params: idParam }), c.choosePackage);
+// Once the agreement has gone out, a different package is asked for (staff approve it) rather than chosen.
+clientPortalRoutes.post("/package-changes", validate({ body: packageChangeRequestSchema }), async (req, res) =>
+  void res.status(201).json(await packageChanges.requestChange(req.user!, res.locals.client as ClientContext, req.body)),
+);
+clientPortalRoutes.post("/package-changes/:id/withdraw", validate({ params: idParam }), async (req, res) =>
+  void res.json(await packageChanges.withdrawChange(req.user!, res.locals.client as ClientContext, (res.locals.params as IdParam).id)),
+);
 clientPortalRoutes.get("/settings", c.settings);
 clientPortalRoutes.patch("/settings", validate({ body: settingsSchema }), c.updateSettings);
 clientPortalRoutes.patch("/client", validate({ body: portalClientUpdateSchema }), c.updateClient);

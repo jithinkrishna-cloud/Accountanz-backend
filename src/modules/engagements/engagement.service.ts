@@ -8,6 +8,8 @@ import * as clientRepo from "../clients/client.repository.js";
 import { countLiveInvoices, issueInvoice } from "../invoices/invoice.repository.js";
 import { notifyInvoiceIssued } from "../notifications/notification.service.js";
 import { findPackageById } from "../packages/package.repository.js";
+import { syncCaseWithEngagement } from "../onboarding/onboarding.sync.js";
+import * as onboardingRepo from "../onboarding/onboarding.repository.js";
 import * as repo from "./engagement.repository.js";
 import { ENGAGEMENT_TRANSITIONS } from "./engagement.types.js";
 import type { EngagementInput, EngagementListQuery, EngagementUpdateInput, StatusInput } from "./engagement.validation.js";
@@ -40,8 +42,14 @@ export async function createEngagement(actor: AuthUser, input: EngagementInput) 
   const id = await withTransaction(async (conn) => {
     const open = await repo.findOpenEngagement(input.client_id, conn);
     if (open) throw AppError.conflict(`This client already has an open engagement (#${open.id}, ${open.status}). End it before starting another.`);
+    // An open proposal is the offer on the table: an engagement on another package would contradict it.
+    const oc = await onboardingRepo.lockLatestCaseForClient(input.client_id, conn);
+    if (oc?.stage === "proposal_sent" && oc.suggested_package_id !== input.package_id) {
+      throw AppError.conflict("A proposal for a different package is waiting for this client. Take it back to assessment from Onboarding first, or wait for them to accept it.");
+    }
     const newId = await repo.insertEngagement(input, conn);
     await recordAudit(actor, { action: "Engagement created", entityType: "Engagement", entityId: newId, clientId: input.client_id, details: `${client.legal_name} on ${pkg.name}` }, conn);
+    await syncCaseWithEngagement(actor, input.client_id, "team", conn);
     return newId;
   });
   return getEngagement(id);
@@ -55,10 +63,11 @@ export async function updateEngagement(actor: AuthUser, id: number, input: Engag
     if (!e) throw AppError.notFound("Engagement");
     if (e.status === "ended") throw AppError.conflict("An ended engagement can't be changed");
     if (input.package_id && input.package_id !== e.package_id && e.status !== "draft") {
-      throw fieldError("package_id", "The package can only change while the engagement is a draft");
+      throw fieldError("package_id", "Once sent, the package changes through “Change package”");
     }
     await repo.updateEngagement(id, input, conn);
     await recordAudit(actor, { action: "Engagement updated", entityType: "Engagement", entityId: id, clientId: e.client_id, details: Object.keys(input).map(humanize).join(", ").toLowerCase() }, conn);
+    if (input.package_id && input.package_id !== e.package_id) await syncCaseWithEngagement(actor, e.client_id, "team", conn);
   });
   return getEngagement(id);
 }
@@ -90,6 +99,8 @@ export async function changeStatus(actor: AuthUser, id: number, input: StatusInp
 
     await repo.setStatus(id, input.to, conn);
     await recordAudit(actor, { action: "Engagement status changed", entityType: "Engagement", entityId: id, clientId: e.client_id, details: `${humanize(e.status)} → ${humanize(input.to)}` }, conn);
+    // Accepted or active on the engagement means accepted in onboarding too.
+    if (input.to === "accepted" || input.to === "active") await syncCaseWithEngagement(actor, e.client_id, "team", conn);
     if (invoice) {
       await recordAudit(
         actor,

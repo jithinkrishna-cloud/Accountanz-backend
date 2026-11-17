@@ -12,10 +12,14 @@ const SELECT = `
          e.start_date, e.end_date, e.renewal_date, e.agreement_file_name,
          (SELECT COUNT(*) FROM service_invoices i WHERE i.engagement_id = e.id AND i.status <> 'cancelled') AS invoice_count,
          (SELECT i.invoice_number FROM service_invoices i WHERE i.engagement_id = e.id AND i.status <> 'cancelled' ORDER BY i.period, i.id LIMIT 1) AS first_invoice_number,
+         pcr.id AS pending_change_id, pcr.source AS pending_change_source, pcr.to_package_id AS pending_change_package_id,
+         tp.name AS pending_change_package_name, pcr.message AS pending_change_message, pcr.created_at AS pending_change_at,
          e.created_at, e.updated_at
     FROM engagements e
     JOIN clients c ON c.id = e.client_id
-    JOIN packages p ON p.id = e.package_id`;
+    JOIN packages p ON p.id = e.package_id
+    LEFT JOIN package_change_requests pcr ON pcr.id = (SELECT MAX(r.id) FROM package_change_requests r WHERE r.engagement_id = e.id AND r.status = 'pending')
+    LEFT JOIN packages tp ON tp.id = pcr.to_package_id`;
 
 export async function listEngagements(q: EngagementListQuery): Promise<Paged<EngagementRow>> {
   const where: string[] = [];
@@ -90,6 +94,27 @@ export function findOpenEngagement(clientId: number, db: Db = pool, exceptId?: n
     exceptId ? [clientId, exceptId] : [clientId],
     db,
   );
+}
+
+export interface OpenEngagementTerms {
+  id: number;
+  status: Exclude<EngagementStatus, "ended">;
+  package_id: number;
+  package_name: string;
+  /** Agreed fee, or the package's list price. */
+  monthly_fee: number;
+}
+
+/** The client's open engagement with its package and fee: the record the onboarding case follows. */
+export async function findOpenTerms(clientId: number, db: Db = pool) {
+  const row = await queryOne<OpenEngagementTerms>(
+    `SELECT e.id, e.status, e.package_id, p.name AS package_name, COALESCE(e.monthly_fee, p.monthly_fee) AS monthly_fee
+       FROM engagements e JOIN packages p ON p.id = e.package_id
+      WHERE e.client_id = ? AND e.status <> 'ended' ORDER BY e.id DESC LIMIT 1`,
+    [clientId],
+    db,
+  );
+  return row ? { ...row, monthly_fee: Number(row.monthly_fee) } : null;
 }
 
 /** `monthly_fee`: the agreed fee when it differs from the package's list price (e.g. from a proposal); null = list price. */

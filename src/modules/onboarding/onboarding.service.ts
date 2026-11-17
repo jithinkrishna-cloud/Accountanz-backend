@@ -9,7 +9,15 @@ import * as engagementRepo from "../engagements/engagement.repository.js";
 import { findPackageById } from "../packages/package.repository.js";
 import { notifyProposalAccepted, notifyProposalSent } from "../notifications/notification.service.js";
 import * as repo from "./onboarding.repository.js";
+import { assertNoConflictingEngagement } from "./onboarding.sync.js";
 import { STAGE_TRANSITIONS, type OnboardingReadiness } from "./onboarding.types.js";
+
+/**
+ * A package and fee are always needed. Complexity is the team's own judgement: needed when staff pick the package,
+ * not when the client already chose it in their portal (staff then only confirm the choice and the fee).
+ */
+const assessmentComplete = (oc: { complexity: string | null; suggested_package_id: number | null; suggested_monthly_fee: number | null; package_source: "team" | "client" | null }) =>
+  !!(oc.suggested_package_id && oc.suggested_monthly_fee != null && (oc.complexity || oc.package_source === "client"));
 import type { AssessmentInput, OnboardingListQuery, ProspectInput, ServiceRequirementsInput, StageInput } from "./onboarding.validation.js";
 
 async function computeReadiness(caseId: number, clientId: number, assessmentComplete: boolean): Promise<OnboardingReadiness> {
@@ -50,7 +58,7 @@ export async function getCase(id: number) {
   if (!row) throw AppError.notFound("Onboarding case");
   const [service_requirements, readiness] = await Promise.all([
     repo.getServiceRequirements(id),
-    computeReadiness(id, row.client_id, !!(row.complexity && row.suggested_package_id && row.suggested_monthly_fee != null)),
+    computeReadiness(id, row.client_id, assessmentComplete(row)),
   ]);
   return { ...row, service_requirements, readiness };
 }
@@ -102,7 +110,11 @@ export async function saveAssessment(actor: AuthUser, id: number, input: Assessm
     const oc = await repo.lockCase(id, conn);
     if (!oc) throw AppError.notFound("Onboarding case");
     if (oc.stage === "accepted") throw AppError.conflict("This prospect has already accepted; change the engagement instead");
-    await repo.updateAssessment(id, input, actor.id, conn);
+    // Suggesting a package the client isn't already committed to would create a second, conflicting offer.
+    if (input.suggested_package_id) await assertNoConflictingEngagement(oc.client_id, input.suggested_package_id, conn);
+    // Keeping the client's own choice keeps it marked as theirs; picking another package makes it the team's suggestion.
+    const packageSource = !input.suggested_package_id ? null : input.suggested_package_id === oc.suggested_package_id && oc.package_source ? oc.package_source : "team";
+    await repo.updateAssessment(id, input, packageSource, actor.id, conn);
     // Recording an assessment on a fresh registration moves it into the assessment stage.
     if (oc.stage === "registered") await repo.setStage(id, "assessment", conn);
     const parts = [
@@ -134,12 +146,28 @@ export async function changeStage(actor: AuthUser, id: number, input: StageInput
     if (!STAGE_TRANSITIONS[oc.stage].includes(input.to)) {
       throw AppError.conflict(`A prospect can't move from ${humanize(oc.stage)} to ${humanize(input.to)}`);
     }
-    if ((input.to === "proposal_sent" || input.to === "accepted") && (!oc.complexity || !oc.suggested_package_id || oc.suggested_monthly_fee == null)) {
+    if ((input.to === "proposal_sent" || input.to === "accepted") && !assessmentComplete(oc)) {
       throw AppError.conflict("Save the assessment (complexity, package and fee) before sending a proposal");
+    }
+    // Straight from assessment to accepted only confirms a package the client chose themselves in the portal.
+    if (oc.stage === "assessment" && input.to === "accepted" && oc.package_source !== "client") {
+      throw AppError.conflict("Send the proposal to the client first. Only a package the client chose in their portal can be confirmed directly.");
+    }
+    if (input.to === "proposal_sent" || input.to === "accepted") await assertNoConflictingEngagement(oc.client_id, oc.suggested_package_id, conn);
+    // Soft gate: a proposal goes out on complete onboarding data, unless an admin gives a reason to send it anyway.
+    let overrideNote = "";
+    if (input.to === "proposal_sent") {
+      const readiness = await computeReadiness(id, oc.client_id, true);
+      if (!readiness.complete) {
+        if (!input.override_reason) {
+          throw new AppError("CONFLICT", `Complete the onboarding data before sending a proposal: ${readiness.missing.join("; ")}`, { readiness: { missing: readiness.missing } });
+        }
+        overrideNote = ` (sent with incomplete data: ${readiness.missing.join("; ")}. Reason: ${input.override_reason})`;
+      }
     }
 
     await repo.setStage(id, input.to, conn);
-    let details = `${humanize(oc.stage)} → ${humanize(input.to)}`;
+    let details = `${humanize(oc.stage)} → ${humanize(input.to)}${overrideNote}`;
 
     if (input.to === "proposal_sent") await repo.markProposalSent(id, conn);
     if (input.to === "accepted") details += await acceptOnCase(actor, oc, "team", conn);
