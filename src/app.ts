@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import express from "express";
@@ -24,7 +25,19 @@ export function createApp() {
   app.use(cors({ origin: [env.APP_URL, ...env.CORS_ORIGINS], credentials: true }));
   app.use(express.json({ limit: "1mb" }));
   app.use(cookieParser());
-  app.use(pinoHttp({ logger, autoLogging: { ignore: (req) => req.url === "/api/health" } }));
+  app.use(
+    pinoHttp({
+      logger,
+      autoLogging: { ignore: (req) => req.url === "/api/health" },
+      // A per-request id (req.id) for logs and audit rows; echoed back so a user's report can be traced.
+      genReqId: (req, res) => {
+        const incoming = req.headers["x-request-id"];
+        const id = typeof incoming === "string" && /^[\w-]{1,64}$/.test(incoming) ? incoming : randomUUID();
+        res.setHeader("x-request-id", id);
+        return id;
+      },
+    }),
+  );
 
   app.get("/api/health", async (_req, res) => {
     await pool.query("SELECT 1");

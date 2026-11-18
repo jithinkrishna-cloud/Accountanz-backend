@@ -10,6 +10,7 @@ import { checklist as closingChecklist, currentStatus } from "../closing/closing
 import { withTransaction } from "../../database/connection.js";
 import { myClientPermissions } from "../journl-permissions/permission.service.js";
 import * as repo from "./workspace.repository.js";
+import { auditedJournlRead, type ReadTarget, type RequestContext } from "../audit/journl-read-audit.js";
 
 /** The repository substitutes "{c}" with each query's client column. */
 const scopeOf = (actor: AuthUser) => clientScope(actor, "{c}");
@@ -107,7 +108,12 @@ export async function setReadiness(actor: AuthUser, clientId: number, period: st
  * Read-only JournL books for an accountant on this client: needs a current assignment with JournL access
  * (admins always pass). Reuses the admin view; the data comes live from JournL with the owner's session.
  */
-export async function clientJournlData(actor: AuthUser, clientId: number, period: { from: string; to: string }) {
+export async function clientJournlData(actor: AuthUser, clientId: number, period: { from: string; to: string }, ctx: RequestContext = {}) {
+  const target: ReadTarget = { feature: "overview", label: "Overview", from: period.from, to: period.to };
+  return auditedJournlRead(actor, clientId, ctx, target, () => loadJournlOverview(actor, clientId, period));
+}
+
+async function loadJournlOverview(actor: AuthUser, clientId: number, period: { from: string; to: string }) {
   await requireClientAccess(actor, clientId);
   if (!isAdmin(actor) && !(await repo.hasJournlAccess(actor.id, clientId))) {
     throw AppError.forbidden("Your assignment on this client doesn't include JournL access. Ask an admin to turn it on.");
@@ -124,6 +130,7 @@ export async function clientJournlData(actor: AuthUser, clientId: number, period
   }
   return overview;
 }
+
 
 /** JournL features (journl_modules keys) this person may read in a client's JournL today; every feature for admins. */
 async function readableFeatures(actor: AuthUser, clientId: number): Promise<Set<string>> {
@@ -171,7 +178,13 @@ export async function journlWorkspace(actor: AuthUser) {
 }
 
 /** One read-only JournL view for a client: assignment, engagement, JournL access and the module grant must all allow it. */
-export async function clientJournlView(actor: AuthUser, clientId: number, viewKey: string, q: JournlViewQuery) {
+export async function clientJournlView(actor: AuthUser, clientId: number, viewKey: string, q: JournlViewQuery, ctx: RequestContext = {}) {
+  const known = JOURNL_VIEWS[viewKey];
+  const target: ReadTarget = { feature: known?.feature ?? viewKey, label: known?.label ?? viewKey, from: q.from, to: q.to, extra: `page ${q.page}` };
+  return auditedJournlRead(actor, clientId, ctx, target, () => loadJournlView(actor, clientId, viewKey, q));
+}
+
+async function loadJournlView(actor: AuthUser, clientId: number, viewKey: string, q: JournlViewQuery) {
   await requireClientAccess(actor, clientId);
   const view = JOURNL_VIEWS[viewKey];
   if (!view) throw AppError.notFound("JournL view");
