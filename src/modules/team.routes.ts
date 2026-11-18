@@ -5,6 +5,7 @@ import { ACCOUNTANT_ROLES } from "../types/auth.types.js";
 import { approvalRoutes } from "./approvals/approval.routes.js";
 import { communicationRoutes } from "./communication/communication.routes.js";
 import { documentRoutes } from "./documents/document.routes.js";
+import { correctionRoutes } from "./journl-corrections/correction.routes.js";
 import { reportRoutes } from "./reports/report.routes.js";
 import { staffReviewRoutes } from "./reviews/review.routes.js";
 import { staffTaskRoutes } from "./tasks/task.routes.js";
@@ -17,6 +18,8 @@ import { workspaceRoutes } from "./workspace/workspace.routes.js";
  */
 export const teamRoutes = Router();
 
+// JournL corrections: before the guard, with their own guard (accountants + super_admin) on their paths only.
+teamRoutes.use("/workspace", correctionRoutes);
 teamRoutes.use(authenticate, authorize(...ACCOUNTANT_ROLES));
 teamRoutes.use("/tasks", staffTaskRoutes);
 teamRoutes.use("/reviews", staffReviewRoutes);

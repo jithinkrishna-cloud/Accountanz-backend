@@ -120,13 +120,14 @@ async function loadJournlOverview(actor: AuthUser, clientId: number, period: { f
   }
   const connection = await repo.journlConnection(clientId);
   if (!connection || connection.status !== "connected") throw AppError.conflict("This client hasn't connected JournL yet");
-  const overview = await getJournlOverview(connection.id, period);
+  const overview = await getJournlOverview(connection.id, period, clientId);
   // Each report section needs its own JournL feature (Profit & Loss, Trial Balance, Day Book).
   const features = await readableFeatures(actor, clientId);
   for (const [section, feature] of Object.entries(OVERVIEW_SECTION_FEATURES) as [keyof typeof OVERVIEW_SECTION_FEATURES, string][]) {
     if (features.has(feature)) continue;
     const name = JOURNL_FEATURE_LIST.find((f) => f.key === feature)?.name ?? feature;
-    overview[section] = { data: null, error: `You don't have ${name} access in this client's JournL.` };
+    // The trial balance is hidden here, so nothing is flagged (suspense: null) either.
+    (overview as unknown as Record<string, unknown>)[section] = { data: null, error: `You don't have ${name} access in this client's JournL.`, ...(section === "trial_balance" ? { suspense: null } : {}) };
   }
   return overview;
 }

@@ -3,6 +3,7 @@ import { queryOne } from "../../database/connection.js";
 import { AppError } from "../../utils/app-error.js";
 import { decryptSecret } from "../../utils/crypto.js";
 import { journlGet, type ReadResult } from "./journl.gateway.js";
+import { SUSPENSE_CHECK_FAILED, suspenseField, type SuspenseField } from "../journl-corrections/suspense-status.js";
 
 /**
  * Read-only view of a client's JournL books, fetched live with the session the owner created by signing in
@@ -30,7 +31,8 @@ export interface JournlOverview {
   company: Section<{ id: string; name: string; code: string | null; email: string | null; phone: string | null; gstin: string | null; address: string | null; state: string | null; books_start: string | null }>;
   branches: Section<{ id: number; code: string | null; name: string }[]>;
   profit_loss: Section<{ total_income: number; total_expense: number; net_profit: number; groups: { nature: string; name: string; amount: number }[] }>;
-  trial_balance: Section<{ id: number; name: string; debit: number; credit: number; ledgers: { name: string; debit: number; credit: number }[] }[]>;
+  /** `suspense` is set whenever the client id is known: null = nothing to flag; `{ error }` = couldn't check (render as a warning). */
+  trial_balance: Section<{ id: number; name: string; debit: number; credit: number; ledgers: { name: string; debit: number; credit: number }[] }[]> & { suspense: SuspenseField };
   vouchers: Section<{ total: number; rows: { id: number; number: string | null; date: string | null; type: string | null; account: string | null; description: string | null; amount: number }[] }>;
 }
 
@@ -82,7 +84,7 @@ export async function openJournlSession(connectionId: number) {
   }
 }
 
-export async function getJournlOverview(connectionId: number, period: { from: string; to: string }): Promise<JournlOverview> {
+export async function getJournlOverview(connectionId: number, period: { from: string; to: string }, clientId?: number | null): Promise<JournlOverview> {
   const { token, companyId, expiresAt } = await openJournlSession(connectionId);
   const companyRes = await journlGet<Record<string, unknown>>(token, `companyMaster/${encodeURIComponent(companyId)}`);
   if (companyRes.kind === "expired") throw AppError.conflict("The JournL session has expired. Ask the owner to sign in with JournL again.");
@@ -95,6 +97,13 @@ export async function getJournlOverview(connectionId: number, period: { from: st
     journlGet<TbNode[]>(token, "defaultAccountingGroups/trial-balance", { ...range, companyStartDate: booksStart ?? period.from }),
     journlGet<{ total: Num; result: Record<string, unknown>[] }>(token, "transaction/all-voucher", { ...range, page: 1, limit: 25, sortBy: "voucherDate", sortOrder: "DESC" }),
   ]);
+
+  const tbSection = section(tb, (groups) =>
+    groups.map((g) => ({ id: g.id ?? 0, name: g.name ?? "—", ...drCr(g.closeDebit, g.closeCredit, g.closingBalance), ledgers: ledgersOf(g) })),
+  );
+  // Suspense is read from the raw tree (it keeps ledgerId); only when the trial balance itself was read.
+  const rawTb = tb.status === "fulfilled" && tb.value.kind === "ok" && Array.isArray(tb.value.data) ? tb.value.data : null;
+  const suspense: SuspenseField = rawTb ? (clientId != null ? await suspenseField(clientId, rawTb) : { error: SUSPENSE_CHECK_FAILED }) : null;
 
   return {
     period,
@@ -117,9 +126,7 @@ export async function getJournlOverview(connectionId: number, period: { from: st
       net_profit: num(d.totals?.netProfitLoss),
       groups: (d.data ?? []).flatMap((n) => (n.groups ?? []).map((g) => ({ nature: n.nature, name: g.name, amount: num(g.totalAmount) }))),
     })),
-    trial_balance: section(tb, (groups) =>
-      groups.map((g) => ({ id: g.id ?? 0, name: g.name ?? "—", ...drCr(g.closeDebit, g.closeCredit, g.closingBalance), ledgers: ledgersOf(g) })),
-    ),
+    trial_balance: { ...tbSection, suspense },
     vouchers: section(vouchers, (d) => ({
       total: num(d.total),
       rows: (d.result ?? []).map((v) => ({

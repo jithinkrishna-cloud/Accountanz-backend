@@ -16,7 +16,7 @@ export async function journlData(req: Request, res: Response) {
   const period = res.locals.query as JournlDataQuery;
   const clientId = await connectionClientId(connectionId);
   const target = { feature: "overview", label: `Overview (connection #${connectionId})`, from: period.from, to: period.to };
-  res.json(await auditedJournlRead(req.user!, clientId, requestContext(req), target, () => getJournlOverview(connectionId, period)));
+  res.json(await auditedJournlRead(req.user!, clientId, requestContext(req), target, () => getJournlOverview(connectionId, period, clientId)));
 }
 
 async function connectionClientId(connectionId: number): Promise<number | null> {

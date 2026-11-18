@@ -33,6 +33,16 @@ const schema = z.object({
   JOURNL_API_URL: z.url().optional(),
   /** 32-byte base64 key that encrypts stored JournL session tokens. Without it, JournL data can't be read. */
   JOURNL_TOKEN_KEY: z.string().refine((v) => Buffer.from(v, "base64").length === 32, "JOURNL_TOKEN_KEY must be 32 bytes, base64").optional(),
+  /** Master switch for writing corrections to JournL. Off unless explicitly enabled. */
+  JOURNL_WRITES_ENABLED: z
+    .enum(["true", "false", "1", "0"])
+    .default("false")
+    .transform((v) => v === "true" || v === "1"),
+  /** JournL API hostnames that corrections may be written to, comma-separated. Guards against writing to production by accident. */
+  JOURNL_WRITE_HOSTS: z
+    .string()
+    .default("testapi.bizpolebooks.com")
+    .transform((v) => v.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)),
 });
 
 const parsed = schema.safeParse(process.env);
