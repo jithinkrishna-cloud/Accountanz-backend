@@ -74,11 +74,13 @@ export async function openJournlSession(connectionId: number) {
   if (!conn.access_token_enc || !conn.token_expires_at || !env.JOURNL_TOKEN_KEY) {
     throw AppError.conflict("Accountanz has no JournL session for this client. Ask the owner to sign in with JournL again.");
   }
-  if (new Date(conn.token_expires_at).getTime() <= Date.now()) {
+  // Stored as UTC (written and compared against UTC_TIMESTAMP()); dateStrings returns it without a zone, so mark it UTC.
+  const expiresAt = new Date(`${conn.token_expires_at.replace(" ", "T")}Z`);
+  if (!(expiresAt.getTime() > Date.now())) {
     throw AppError.conflict("The JournL session has expired (JournL sessions last 8 hours). Ask the owner to sign in with JournL again.");
   }
   try {
-    return { token: decryptSecret(conn.access_token_enc, env.JOURNL_TOKEN_KEY), companyId: conn.external_org_id, expiresAt: new Date(conn.token_expires_at) };
+    return { token: decryptSecret(conn.access_token_enc, env.JOURNL_TOKEN_KEY), companyId: conn.external_org_id, expiresAt };
   } catch {
     throw AppError.conflict("The stored JournL session can't be read. Ask the owner to sign in with JournL again.");
   }
