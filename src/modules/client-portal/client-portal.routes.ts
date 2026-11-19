@@ -14,6 +14,7 @@ import { messageParam } from "../communication/communication.validation.js";
 import { approvalDecisionSchema, connectJournlSchema, meetingRequestSchema, newThreadSchema, portalClientUpdateSchema, replySchema, settingsSchema, tasksQuerySchema, uploadMetaSchema } from "./client-portal.validation.js";
 import { activity as jlActivity, catalog as jlCatalog, team as jlTeam, setModule as jlSetModule } from "./journl-client-permission.controller.js";
 import { modulePermissionBody, modulePermissionParams } from "../journl-permissions/permission.validation.js";
+import { bizpoleOwnerRoutes } from "../integrations/bizpole/bizpole.routes.js";
 
 /** Resolves the signed-in user's company once per request; every handler reads only that company. */
 const withClient: RequestHandler = async (req, res, next) => {
@@ -35,6 +36,7 @@ clientPortalRoutes.get("/team", c.team);
 clientPortalRoutes.get("/software", c.software);
 clientPortalRoutes.post("/software/journl", validate({ body: connectJournlSchema }), c.connectJournl);
 clientPortalRoutes.post("/software/journl/disconnect", c.disconnectJournl);
+clientPortalRoutes.use("/software/bizpole", bizpoleOwnerRoutes);
 clientPortalRoutes.get("/documents", c.documents);
 clientPortalRoutes.post("/documents", documentUpload(), multipartFields(uploadMetaSchema), c.upload);
 clientPortalRoutes.get("/documents/:id/file", validate({ params: idParam }), c.downloadDocument);

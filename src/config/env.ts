@@ -43,6 +43,13 @@ const schema = z.object({
     .string()
     .default("testapi.bizpolebooks.com")
     .transform((v) => v.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)),
+  /** Bizpole Books Integration API base, ending in /integration/v1 (e.g. https://testapi.bizpolebooks.com/integration/v1). */
+  BIZPOLE_API_BASE_URL: z.url().optional(),
+  /** Accountanz's partner credentials, issued by Bizpole. Server-side only; never sent to a browser or logged. */
+  BIZPOLE_CLIENT_ID: z.string().min(1).optional(),
+  BIZPOLE_CLIENT_SECRET: z.string().min(1).optional(),
+  /** 32-byte base64 key that encrypts stored Bizpole access and refresh tokens (separate from JOURNL_TOKEN_KEY). */
+  BIZPOLE_TOKEN_KEY: z.string().refine((v) => Buffer.from(v, "base64").length === 32, "BIZPOLE_TOKEN_KEY must be 32 bytes, base64").optional(),
 });
 
 const parsed = schema.safeParse(process.env);

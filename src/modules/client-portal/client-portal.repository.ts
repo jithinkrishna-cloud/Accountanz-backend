@@ -98,7 +98,7 @@ export const software = (clientId: number) =>
   query<{ provider: string; external_org_name: string | null; external_org_id: string | null; status: string; last_health_check: string | null; verified_at: string | null; authorized_at: string | null; session_until: string | null }>(
     `SELECT provider, external_org_name, external_org_id, status, last_health_check, verified_at, authorized_at,
             CASE WHEN access_token_enc IS NOT NULL AND token_expires_at > UTC_TIMESTAMP() THEN token_expires_at END AS session_until
-       FROM integration_connections WHERE client_id = ? ORDER BY provider`,
+       FROM integration_connections WHERE client_id = ? AND provider = 'journl' ORDER BY provider`,
     [clientId],
   );
 

@@ -15,7 +15,8 @@ const SELECT = `
     LEFT JOIN users au ON au.id = ic.authorized_by`;
 
 export async function listConnections(q: IntegrationListQuery): Promise<Paged<IntegrationRow>> {
-  const where: string[] = [];
+  // JournL connections only: Bizpole Books rows (provider 'bizpole_books') are a separate integration.
+  const where: string[] = ["ic.provider = 'journl'"];
   const params: Param[] = [];
   if (q.q) (where.push("(ic.external_org_name LIKE ? OR ic.external_org_id LIKE ? OR c.legal_name LIKE ? OR c.trade_name LIKE ?)"), params.push(`%${q.q}%`, `%${q.q}%`, `%${q.q}%`, `%${q.q}%`));
   if (q.provider) (where.push("ic.provider = ?"), params.push(q.provider));

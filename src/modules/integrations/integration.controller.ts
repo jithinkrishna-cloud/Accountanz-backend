@@ -20,6 +20,6 @@ export async function journlData(req: Request, res: Response) {
 }
 
 async function connectionClientId(connectionId: number): Promise<number | null> {
-  const row = await queryOne<{ client_id: number }>(`SELECT client_id FROM integration_connections WHERE id = ?`, [connectionId]);
+  const row = await queryOne<{ client_id: number }>(`SELECT client_id FROM integration_connections WHERE id = ? AND provider = 'journl'`, [connectionId]);
   return row?.client_id ?? null;
 }
