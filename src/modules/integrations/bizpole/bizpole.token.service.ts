@@ -77,7 +77,7 @@ export async function exchangeCode(code: string): Promise<BizpoleTokenResponse> 
     return await requestToken({ grant_type: "connection_code", code });
   } catch (err) {
     if (err instanceof BizpoleApiError && err.code === "invalid_grant") {
-      throw new AppError("VALIDATION_ERROR", "That connection code isn't valid, was already used or has expired (codes last 10 minutes). Create a new one in Bizpole Books.", {
+      throw new AppError("VALIDATION_ERROR", "That connection code wasn't accepted. It may have been created for another app instead of Accountanz, already used, or expired (codes last 10 minutes). Create a new code for Accountanz in Bizpole Books.", {
         fieldErrors: { code: ["Invalid, used or expired code"] },
       });
     }

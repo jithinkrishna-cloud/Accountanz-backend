@@ -119,49 +119,6 @@ export async function disconnectJournlConnection(id: number, conn: PoolConnectio
   );
 }
 
-/** Another client already connected to this JournL company (one JournL company serves one client). */
-export const journlOrgTakenBy = (externalOrgId: string, clientId: number, conn: PoolConnection) =>
-  queryOne<{ client_id: number }>(
-    `SELECT client_id FROM integration_connections WHERE provider = 'journl' AND external_org_id = ? AND client_id <> ? AND status <> 'disconnected' LIMIT 1`,
-    [externalOrgId, clientId],
-    conn,
-  );
-
-/**
- * Connects the client's JournL company after the owner signed in with JournL: JournL confirmed the company,
- * so the connection is verified on the spot. Records the owner's authorization and how it was verified.
- */
-export async function saveJournlConnection(
-  clientId: number,
-  existingId: number | null,
-  org: { id: string; name: string },
-  ownerId: number,
-  note: string,
-  session: { tokenEnc: string; expiresAt: Date } | null,
-  conn: PoolConnection,
-) {
-  const tokenEnc = session?.tokenEnc ?? null;
-  const expiresAt = session?.expiresAt ?? null;
-  if (existingId) {
-    await execute(
-      `UPDATE integration_connections SET external_org_name = ?, external_org_id = ?, status = 'connected', last_error = NULL, last_health_check = UTC_TIMESTAMP(),
-              verified_by = ?, verified_at = UTC_TIMESTAMP(), verification_note = ?, disconnected_at = NULL,
-              authorized_by = ?, authorized_at = UTC_TIMESTAMP(), access_token_enc = ?, token_expires_at = ? WHERE id = ?`,
-      [org.name, org.id, ownerId, note, ownerId, tokenEnc, expiresAt, existingId],
-      conn,
-    );
-    return existingId;
-  }
-  const r = await execute(
-    `INSERT INTO integration_connections
-       (client_id, provider, external_org_name, external_org_id, status, last_health_check, verified_by, verified_at, verification_note, authorized_by, authorized_at, access_token_enc, token_expires_at)
-     VALUES (?, 'journl', ?, ?, 'connected', UTC_TIMESTAMP(), ?, UTC_TIMESTAMP(), ?, ?, UTC_TIMESTAMP(), ?, ?)`,
-    [clientId, org.name, org.id, ownerId, note, ownerId, tokenEnc, expiresAt],
-    conn,
-  );
-  return r.insertId;
-}
-
 // ── Documents & requests ──
 export const listDocuments = (clientId: number) =>
   query<{ id: number; file_name: string; category: string; period: string | null; status: string; review_note: string | null; created_at: string; uploaded_by: string | null; request_id: number | null }>(

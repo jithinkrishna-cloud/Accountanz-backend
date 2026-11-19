@@ -18,15 +18,6 @@ export const uploadMetaSchema = z.object({
   request_id: z.coerce.number().int().positive().optional().or(z.literal("").transform(() => undefined)),
 });
 
-/** "Sign in with JournL": the owner's JournL login, forwarded once to JournL and never stored. */
-export const connectJournlSchema = z.object({
-  journl_email: z.email("Enter your JournL email").max(150),
-  journl_password: z.string().min(1, "Enter your JournL password").max(128),
-  /** Needed only when the JournL account owns more than one company. */
-  company_id: z.string().trim().max(100).optional(),
-  authorize: z.literal(true, "Tick the box to authorize Accountanz"),
-});
-
 export const tasksQuerySchema = z.object({ period: periodSchema.optional() });
 
 export const approvalDecisionSchema = z
@@ -73,6 +64,5 @@ export type ApprovalDecisionInput = z.infer<typeof approvalDecisionSchema>;
 export type NewThreadInput = z.infer<typeof newThreadSchema>;
 export type ReplyInput = z.infer<typeof replySchema>;
 export type SettingsInput = z.infer<typeof settingsSchema>;
-export type ConnectJournlInput = z.infer<typeof connectJournlSchema>;
 export type MeetingRequestInput = z.infer<typeof meetingRequestSchema>;
 export type PortalClientUpdateInput = z.infer<typeof portalClientUpdateSchema>;

@@ -6,7 +6,7 @@ import * as service from "./client-portal.service.js";
 import * as clientService from "../clients/client.service.js";
 import type { ClientContext } from "./client-portal.types.js";
 import type { ClientUpdateInput } from "../clients/client.validation.js";
-import type { ConnectJournlInput, PortalClientUpdateInput, UploadMeta } from "./client-portal.validation.js";
+import type { PortalClientUpdateInput, UploadMeta } from "./client-portal.validation.js";
 import { AppError } from "../../utils/app-error.js";
 
 /** Set by the router's context middleware: the signed-in user's company. */
@@ -31,9 +31,6 @@ export const dashboard = async (_req: Request, res: Response) => void res.json(a
 export const business = async (_req: Request, res: Response) => void res.json(await service.getBusiness(ctx(res)));
 export const team = async (_req: Request, res: Response) => void res.json({ items: await service.getTeam(ctx(res)) });
 export const software = async (_req: Request, res: Response) => void res.json({ items: await service.getSoftware(ctx(res)) });
-export async function connectJournl(req: Request, res: Response) {
-  res.status(201).json({ items: await service.connectJournl(req.user!, ctx(res), req.body as ConnectJournlInput) });
-}
 export const disconnectJournl = async (req: Request, res: Response) => void res.json({ items: await service.disconnectJournl(req.user!, ctx(res)) });
 
 export const documents = async (_req: Request, res: Response) => void res.json({ items: await service.getDocuments(ctx(res)) });
