@@ -3,7 +3,7 @@ import { logger } from "../../../utils/logger.js";
 import type { BizpoleTokenResponse } from "./bizpole.types.js";
 
 /**
- * The only code that talks HTTP to the Bizpole Books Integration API. Read-only: data calls are GET only; the two
+ * The only code that talks HTTP to the JournL Integration API. Read-only: data calls are GET only; the two
  * POSTs are the token endpoint and the client's own revoke (disconnect).
  *
  * - Credentials (client id/secret) go in HTTP Basic, server-side only. Never logged; error messages never echo them.
@@ -42,7 +42,7 @@ export class BizpoleUnreachable extends Error {
 /** Accountanz's own limiter is full: retry after `retryAfterSec`. */
 export class BizpoleBusy extends Error {
   constructor(readonly retryAfterSec: number) {
-    super("Bizpole Books is busy");
+    super("JournL is busy");
     this.name = "BizpoleBusy";
   }
 }
@@ -68,7 +68,7 @@ function baseUrlOrNull(): URL | null {
 /** A path under the API base; refuses anything that could change the host or climb out of the base path. */
 export function urlFor(path: string, query: Record<string, string> = {}): URL {
   const base = baseUrlOrNull();
-  if (!base) throw new BizpoleUnreachable("Bizpole Books isn't set up on this server");
+  if (!base) throw new BizpoleUnreachable("JournL isn't set up on this server");
   if (/^[a-z][a-z0-9+.-]*:/i.test(path) || path.includes("\\") || path.startsWith("//") || path.split("/").includes("..")) {
     throw new Error("bizpole: path must be a plain relative path");
   }
@@ -132,11 +132,11 @@ async function send(url: URL, init: RequestInit, logPath: string): Promise<{ sta
       const name = (err as Error).name;
       const timedOut = name === "AbortError" || name === "TimeoutError";
       logger.warn({ method: init.method, path: logPath, timedOut }, "Bizpole request did not complete");
-      throw new BizpoleUnreachable(timedOut ? "Bizpole Books did not answer in time" : "Bizpole Books could not be reached");
+      throw new BizpoleUnreachable(timedOut ? "JournL did not answer in time" : "JournL could not be reached");
     }
     if (res.type === "opaqueredirect" || res.status === 0 || (res.status >= 300 && res.status < 400)) {
       logger.warn({ method: init.method, path: logPath, status: res.status }, "Bizpole answered with a redirect (not followed)");
-      throw new BizpoleUnreachable("Bizpole Books answered with a redirect");
+      throw new BizpoleUnreachable("JournL answered with a redirect");
     }
     const retryAfterSec = parseRetryAfter(res.headers.get("retry-after"));
     const body = (await res.json().catch(() => null)) as unknown;
@@ -160,7 +160,7 @@ function errorEnvelope(body: unknown): { code?: string; message?: string; reques
 function toApiError(status: number, body: unknown, retryAfterSec: number | null): BizpoleApiError {
   const e = errorEnvelope(body);
   const code = typeof e?.code === "string" ? e.code : status === 429 ? "rate_limited" : `http_${status}`;
-  const message = typeof e?.message === "string" && e.message ? e.message : `Bizpole Books answered ${status}`;
+  const message = typeof e?.message === "string" && e.message ? e.message : `JournL answered ${status}`;
   return new BizpoleApiError(status, code, message, typeof e?.requestId === "string" ? e.requestId : null, retryAfterSec);
 }
 
@@ -187,7 +187,7 @@ export async function requestToken(form: { grant_type: "connection_code"; code: 
   if (status !== 200) throw toApiError(status, body, retryAfterSec);
   const t = body as Partial<BizpoleTokenResponse> | null;
   if (!t || typeof t.access_token !== "string" || typeof t.refresh_token !== "string" || typeof t.expires_in !== "number" || typeof t.grant_id !== "string" || !Array.isArray(t.companies)) {
-    throw new BizpoleUnreachable("Bizpole Books answered the token request without the expected fields");
+    throw new BizpoleUnreachable("JournL answered the token request without the expected fields");
   }
   return t as BizpoleTokenResponse;
 }
@@ -213,6 +213,6 @@ export async function getJson<T>(accessToken: string, limitKey: string, path: st
     `/${path}`,
   );
   if (status !== 200) throw toApiError(status, body, retryAfterSec);
-  if (body === null || typeof body !== "object") throw new BizpoleUnreachable("Bizpole Books answered with an unreadable body");
+  if (body === null || typeof body !== "object") throw new BizpoleUnreachable("JournL answered with an unreadable body");
   return body as T;
 }

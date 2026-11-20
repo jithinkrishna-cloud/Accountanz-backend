@@ -24,17 +24,17 @@ import {
 import type { ConnectInput, SelectCompanyInput, StaffQuery } from "./bizpole.validation.js";
 
 /**
- * Bizpole Books partner connection (read-only). The client owner pastes a connection code from Bizpole; Accountanz
+ * JournL partner connection (read-only). The client owner pastes a connection code from Bizpole; Accountanz
  * exchanges it server-side, lists the companies the owner shared and links exactly one to this client. Staff on the
  * client read its books through Accountanz, never directly. Separate from the JournL connection, which is unchanged.
  */
 
-const NOT_SET_UP = "Bizpole Books isn't set up on this server yet.";
+const NOT_SET_UP = "JournL isn't set up on this server yet.";
 /** Paged reads stop after this many pages rather than return a partial list. */
 export const MAX_PAGES = 20;
 
 const ownerOnly = (ctx: ClientContext, what: string) => {
-  if (ctx.role !== "owner") throw AppError.forbidden(`Only the company owner can ${what} Bizpole Books`);
+  if (ctx.role !== "owner") throw AppError.forbidden(`Only the company owner can ${what} JournL`);
 };
 
 const norm = (g: string | null | undefined) => (g ?? "").trim().toUpperCase() || null;
@@ -44,10 +44,10 @@ export function gstinRule(clientGstin: string | null, companyGstin: string | nul
   const a = norm(clientGstin);
   const b = norm(companyGstin);
   if (a && b && a !== b) {
-    return { block: `This Bizpole Books company's GSTIN (${b}) doesn't match this business's GSTIN in Accountanz (${a}). Choose the right company, or ask your team to correct the GSTIN.`, warning: null };
+    return { block: `This JournL company's GSTIN (${b}) doesn't match this business's GSTIN in Accountanz (${a}). Choose the right company, or ask your team to correct the GSTIN.`, warning: null };
   }
-  if (a && !b) return { block: null, warning: `The Bizpole Books company has no GSTIN; this business's GSTIN in Accountanz is ${a}.` };
-  if (!a && b) return { block: null, warning: `This business has no GSTIN in Accountanz; the Bizpole Books company's GSTIN is ${b}.` };
+  if (a && !b) return { block: null, warning: `The JournL company has no GSTIN; this business's GSTIN in Accountanz is ${a}.` };
+  if (!a && b) return { block: null, warning: `This business has no GSTIN in Accountanz; the JournL company's GSTIN is ${b}.` };
   return { block: null, warning: null };
 }
 
@@ -106,7 +106,7 @@ export async function connect(actor: AuthUser, ctx: ClientContext, input: Connec
   // Don't spend the (single-use) code if this client is already linked.
   const before = await repo.findByClient(ctx.clientId);
   if (before && (before.status === "connected" || before.status === "pending")) {
-    throw AppError.conflict("Bizpole Books is already connected for your company. Disconnect it before connecting again.");
+    throw AppError.conflict("JournL is already connected for your company. Disconnect it before connecting again.");
   }
 
   const t = await exchangeCode(input.code);
@@ -119,14 +119,14 @@ export async function connect(actor: AuthUser, ctx: ClientContext, input: Connec
     }
     const shared = new Set(t.companies.map(String));
     const companies: CompanyChoice[] = listed.filter((c) => shared.has(String(c.id))).map((c) => ({ id: String(c.id), name: c.name, gstin: c.gstin ?? null }));
-    if (companies.length === 0) throw AppError.conflict("This connection code doesn't share any company. Create a new code in Bizpole Books and choose your company.");
+    if (companies.length === 0) throw AppError.conflict("This connection code doesn't share any company. Create a new code in JournL and choose your company.");
 
     const sealed = sealTokens(t);
     const clientGstin = await repo.clientGstin(ctx.clientId);
     const replaced = await withTransaction(async (conn) => {
       const row = await repo.lockByClient(ctx.clientId, conn);
       if (row && (row.status === "connected" || row.status === "pending")) {
-        throw AppError.conflict("Bizpole Books is already connected for your company. Disconnect it before connecting again.");
+        throw AppError.conflict("JournL is already connected for your company. Disconnect it before connecting again.");
       }
       // An 'error' row may still hold a live grant: it is replaced below, so revoke it after the commit.
       const previous = row?.status === "error" ? openRefreshToken(row) : null;
@@ -134,7 +134,7 @@ export async function connect(actor: AuthUser, ctx: ClientContext, input: Connec
         const company = companies[0]!;
         const rule = gstinRule(clientGstin, company.gstin);
         if (rule.block) throw AppError.conflict(rule.block);
-        if (await repo.companyTakenBy(company.id, ctx.clientId, conn)) throw AppError.conflict("This Bizpole Books company is already connected to another Accountanz client.");
+        if (await repo.companyTakenBy(company.id, ctx.clientId, conn)) throw AppError.conflict("This JournL company is already connected to another Accountanz client.");
         const id = await repo.saveNewGrant(ctx.clientId, row?.id ?? null, sealed, { status: "connected", company }, actor.id, conn);
         await recordAudit(actor, { action: "Bizpole Books connected", entityType: "IntegrationConnection", entityId: id, clientId: ctx.clientId, details: `Company ${company.id} (${company.name})` }, conn);
       } else {
@@ -158,12 +158,12 @@ export async function selectCompany(actor: AuthUser, ctx: ClientContext, input: 
   const clientGstin = await repo.clientGstin(ctx.clientId);
   await withTransaction(async (conn) => {
     const row = await repo.lockByClient(ctx.clientId, conn);
-    if (!row || row.status !== "pending") throw AppError.conflict("There's no Bizpole Books connection waiting for a company choice.");
+    if (!row || row.status !== "pending") throw AppError.conflict("There's no JournL connection waiting for a company choice.");
     const company = choicesOf(row).find((c) => c.id === input.company_id);
     if (!company) throw new AppError("VALIDATION_ERROR", "That company isn't one you shared in this connection code", { fieldErrors: { company_id: ["Not shared in this connection"] } });
     const rule = gstinRule(clientGstin, company.gstin);
     if (rule.block) throw AppError.conflict(rule.block);
-    if (await repo.companyTakenBy(company.id, ctx.clientId, conn)) throw AppError.conflict("This Bizpole Books company is already connected to another Accountanz client.");
+    if (await repo.companyTakenBy(company.id, ctx.clientId, conn)) throw AppError.conflict("This JournL company is already connected to another Accountanz client.");
     await repo.setCompany(row.id, company, conn);
     await recordAudit(actor, { action: "Bizpole Books connected", entityType: "IntegrationConnection", entityId: row.id, clientId: ctx.clientId, details: `Company ${company.id} (${company.name})` }, conn);
   });
@@ -176,7 +176,7 @@ export async function disconnect(actor: AuthUser, ctx: ClientContext): Promise<B
   const { token, alreadyEnded } = await withTransaction(async (conn) => {
     // Under the row lock, so no refresh can rotate the token between reading it and marking the row.
     const row = await repo.lockByClient(ctx.clientId, conn);
-    if (!row || row.status === "disconnected") throw AppError.conflict("Bizpole Books is not connected for your company.");
+    if (!row || row.status === "disconnected") throw AppError.conflict("JournL is not connected for your company.");
     const refresh = openRefreshToken(row);
     await repo.markDisconnected(row.id, conn);
     await recordAudit(actor, { action: "Bizpole Books disconnected", entityType: "IntegrationConnection", entityId: row.id, clientId: ctx.clientId, details: "Disconnected by the company owner" }, conn);
@@ -227,7 +227,7 @@ export async function staffRead(actor: AuthUser, clientId: number, resource: Biz
     if (!bizpoleConfigured()) throw new AppError("UNAVAILABLE", NOT_SET_UP);
     const row = await repo.findByClient(clientId);
     if (!row || !row.external_org_id || (row.status !== "connected" && row.status !== "error")) {
-      throw AppError.conflict(row?.status === "revoked" ? "Access to Bizpole Books has ended. The client owner needs to reconnect." : "Bizpole Books isn't connected for this client.");
+      throw AppError.conflict(row?.status === "revoked" ? "Access to JournL has ended. The client owner needs to reconnect." : "JournL isn't connected for this client.");
     }
     const base = `companies/${encodeURIComponent(row.external_org_id)}${spec.path ? `/${spec.path}` : ""}`;
 
@@ -254,7 +254,7 @@ export async function staffRead(actor: AuthUser, clientId: number, resource: Biz
       return result;
     } catch (err) {
       // 404 on a company path: the company is no longer shared with Accountanz (or no longer exists).
-      if (err instanceof BizpoleApiError && err.status === 404) await repo.markError(row.id, "Bizpole Books says this company is no longer shared with Accountanz.");
+      if (err instanceof BizpoleApiError && err.status === 404) await repo.markError(row.id, "JournL says this company is no longer shared with Accountanz.");
       throw appErrorFrom(err);
     }
   });
