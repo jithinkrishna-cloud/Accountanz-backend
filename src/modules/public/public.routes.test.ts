@@ -34,3 +34,22 @@ describe("publicAccountants", () => {
     expect(r.map((a) => a.expertise)).toEqual([["TDS"], []]);
   });
 });
+
+const pk = vi.hoisted(() => ({ listPackages: vi.fn() }));
+vi.mock("../packages/package.repository.js", () => ({ listPackages: pk.listPackages }));
+vi.mock("express-rate-limit", () => ({ default: () => (_req: unknown, _res: unknown, next: () => void) => next() }));
+
+describe("publicPackages", () => {
+  it("returns only active packages, cheapest first, without ids or service codes", async () => {
+    const { publicPackages } = await import("./public.routes.js");
+    pk.listPackages.mockResolvedValue([
+      { id: 1, name: "Growth", description: "d", monthly_fee: "48000.00", billing_cycle: "monthly", scope_notes: "s", team_roles: '["bookkeeper","cfo"]', is_active: true, services: [{ id: 3, code: "GST-R", name: "GST Filing" }] },
+      { id: 2, name: "Basic", description: null, monthly_fee: 25000, billing_cycle: "monthly", scope_notes: null, team_roles: ["bookkeeper"], is_active: true, services: [] },
+      { id: 3, name: "Old", description: null, monthly_fee: 1000, billing_cycle: "monthly", scope_notes: null, team_roles: [], is_active: false, services: [] },
+    ]);
+    expect(await publicPackages()).toEqual([
+      { name: "Basic", description: null, monthly_fee: 25000, billing_cycle: "monthly", scope_notes: null, team_roles: ["bookkeeper"], services: [] },
+      { name: "Growth", description: "d", monthly_fee: 48000, billing_cycle: "monthly", scope_notes: "s", team_roles: ["bookkeeper", "cfo"], services: ["GST Filing"] },
+    ]);
+  });
+});
