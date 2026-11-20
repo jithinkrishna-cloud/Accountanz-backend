@@ -11,6 +11,7 @@ import { adminRoutes } from "./modules/admin.routes.js";
 import { authRoutes } from "./modules/auth/auth.routes.js";
 import { clientPortalRoutes } from "./modules/client-portal/client-portal.routes.js";
 import { projectRoutes } from "./modules/projects/project.routes.js";
+import { publicRoutes } from "./modules/public/public.routes.js";
 import { teamRoutes } from "./modules/team.routes.js";
 import { logger } from "./utils/logger.js";
 
@@ -49,6 +50,7 @@ export function createApp() {
   app.use("/api/team", teamRoutes);
   app.use("/api/app", clientPortalRoutes);
   app.use("/api/projects", projectRoutes);
+  app.use("/api/public", publicRoutes);
 
   app.use(notFound);
   app.use(errorHandler);

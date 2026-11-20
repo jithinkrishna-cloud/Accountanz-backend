@@ -145,3 +145,23 @@ export async function setStatus(id: number, status: RequestStatus, decidedBy: nu
   );
   return res.affectedRows === 1;
 }
+
+/** What anyone may see about an accountant on the public home page: name, role, expertise and start date. Nothing else. */
+export interface PublicAccountant {
+  full_name: string;
+  role: string;
+  expertise: string[];
+  member_since: string;
+}
+
+/** Verified, active accountants for the public home page. Selects only the public columns, so nothing else can leak. */
+export async function publicAccountants(): Promise<PublicAccountant[]> {
+  const rows = await query<{ full_name: string; role: string; expertise: unknown; member_since: string }>(
+    `SELECT u.full_name, u.portal_role AS role, sp.expertise, DATE(u.created_at) AS member_since
+       FROM users u JOIN staff_profiles sp ON sp.user_id = u.id
+      WHERE sp.staff_type = 'accountant' AND sp.verification_status = 'verified' AND u.status = 'active'
+      ORDER BY FIELD(u.portal_role, 'cfo', 'finance_manager', 'reviewer', 'bookkeeper'), u.full_name
+      LIMIT 60`,
+  );
+  return rows.map((r) => ({ full_name: r.full_name, role: r.role, expertise: parseList(r.expertise), member_since: r.member_since }));
+}
