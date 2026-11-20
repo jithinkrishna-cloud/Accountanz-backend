@@ -146,22 +146,32 @@ export async function setStatus(id: number, status: RequestStatus, decidedBy: nu
   return res.affectedRows === 1;
 }
 
-/** What anyone may see about an accountant on the public home page: name, role, expertise and start date. Nothing else. */
+/** What anyone may see about an accountant on the public site: name, role, expertise, start date and a URL slug. Nothing else. */
 export interface PublicAccountant {
+  slug: string;
   full_name: string;
   role: string;
   expertise: string[];
   member_since: string;
 }
 
-/** Verified, active accountants for the public home page. Selects only the public columns, so nothing else can leak. */
-export async function publicAccountants(): Promise<PublicAccountant[]> {
-  const rows = await query<{ full_name: string; role: string; expertise: unknown; member_since: string }>(
-    `SELECT u.full_name, u.portal_role AS role, sp.expertise, DATE(u.created_at) AS member_since
+/** "Meera Joshi", 7 -> "meera-joshi-7". The trailing number is how the detail page finds the person. */
+export const accountantSlug = (name: string, id: number) =>
+  `${name
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "accountant"}-${id}`;
+
+/** Verified, active accountants for the public site. Selects only the public columns (id is used only to build the slug). */
+export async function publicAccountants(accountantId?: number): Promise<PublicAccountant[]> {
+  const rows = await query<{ id: number; full_name: string; role: string; expertise: unknown; member_since: string }>(
+    `SELECT u.id, u.full_name, u.portal_role AS role, sp.expertise, DATE(u.created_at) AS member_since
        FROM users u JOIN staff_profiles sp ON sp.user_id = u.id
-      WHERE sp.staff_type = 'accountant' AND sp.verification_status = 'verified' AND u.status = 'active'
+      WHERE sp.staff_type = 'accountant' AND sp.verification_status = 'verified' AND u.status = 'active' ${accountantId ? "AND u.id = ?" : ""}
       ORDER BY FIELD(u.portal_role, 'cfo', 'finance_manager', 'reviewer', 'bookkeeper'), u.full_name
       LIMIT 60`,
+    accountantId ? [accountantId] : [],
   );
-  return rows.map((r) => ({ full_name: r.full_name, role: r.role, expertise: parseList(r.expertise), member_since: r.member_since }));
+  return rows.map((r) => ({ slug: accountantSlug(r.full_name, r.id), full_name: r.full_name, role: r.role, expertise: parseList(r.expertise), member_since: r.member_since }));
 }

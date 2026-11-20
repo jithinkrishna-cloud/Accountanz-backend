@@ -1,11 +1,12 @@
 import { Router, type Request, type Response } from "express";
 import rateLimit from "express-rate-limit";
 import { publicAccountants } from "../accountant-requests/accountant-request.repository.js";
+import { AppError } from "../../utils/app-error.js";
 import { listPackages } from "../packages/package.repository.js";
 
 /**
- * Unauthenticated, read-only data for the public home page. Keep everything here safe to show to anyone:
- * no ids, contact details, rates or performance numbers.
+ * Unauthenticated, read-only data for the public site. Keep everything here safe to show to anyone:
+ * no contact details, rates or performance numbers. An accountant's id appears only inside their URL slug.
  */
 export const publicRoutes = Router();
 
@@ -22,6 +23,20 @@ publicRoutes.use(
 publicRoutes.get("/accountants", async (_req: Request, res: Response) => {
   res.setHeader("Cache-Control", "public, max-age=300");
   res.json({ items: await publicAccountants() });
+});
+
+/** One accountant by slug ("meera-joshi-7"). The slug must match the current name, so old or guessed links get a 404. */
+export async function publicAccountantBySlug(slug: string) {
+  const m = /^[a-z0-9-]{1,120}-(\d{1,10})$/.exec(slug);
+  if (!m) throw AppError.notFound("Accountant");
+  const [a] = await publicAccountants(Number(m[1]));
+  if (!a || a.slug !== slug) throw AppError.notFound("Accountant");
+  return a;
+}
+
+publicRoutes.get("/accountants/:slug", async (req: Request, res: Response) => {
+  res.setHeader("Cache-Control", "public, max-age=300");
+  res.json(await publicAccountantBySlug(String(req.params.slug)));
 });
 
 /** Active packages as the public home page shows them: no ids or internal codes. */
