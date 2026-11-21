@@ -1,3 +1,4 @@
+import type { JournlAccessState } from "../journl-access-tasks/journl-access-task.types.js";
 export const TEAM_ROLES = ["bookkeeper", "finance_manager", "cfo", "reviewer"] as const;
 export type TeamRole = (typeof TEAM_ROLES)[number];
 
@@ -25,6 +26,8 @@ export interface AssignmentRow {
   status: AssignmentStatus;
   phase: AssignmentPhase;
   journl_access: boolean;
+  /** What Accountanz knows about the JournL login, from confirmed to-dos (never assumed from the flag alone). */
+  journl_access_state: JournlAccessState;
   replaced_by_assignment_id: number | null;
   replaced_by_name: string | null;
   /** The staff group this assignment was created from, if any (null once the group is deleted). */

@@ -4,6 +4,7 @@ import type { AuthUser } from "../../types/auth.types.js";
 import { AppError } from "../../utils/app-error.js";
 import { humanize } from "../../utils/format.js";
 import { recordAudit } from "../audit/audit.service.js";
+import * as journlAccess from "../journl-access-tasks/journl-access-task.service.js";
 import * as clientRepo from "../clients/client.repository.js";
 import { copyActiveGrants } from "../journl-permissions/permission.repository.js";
 import * as repo from "./assignment.repository.js";
@@ -67,6 +68,12 @@ export async function createAssignment(actor: AuthUser, input: AssignmentInput) 
         await recordAudit(actor, { action: "JournL modules carried over", entityType: "Assignment", entityId: newId, clientId: input.client_id, details: `${copied} module grant(s) from #${replaced.id}` }, conn);
       }
     }
+    // JournL logins change by hand: queue the to-do in the same transaction.
+    if (replaced) {
+      await journlAccess.onHandover(actor, replaced, { id: newId, client_id: input.client_id, user_id: input.user_id, journl_access: input.journl_access }, conn);
+    } else {
+      await journlAccess.onAssignmentCreated(actor, { id: newId, client_id: input.client_id, user_id: input.user_id }, input.journl_access, conn);
+    }
     return newId;
   });
   return getAssignment(id);
@@ -79,6 +86,7 @@ export async function updateAssignment(actor: AuthUser, id: number, input: Assig
     if (a.status === "ended") throw AppError.conflict("An ended assignment can't be changed");
     if (input.valid_to && input.valid_to < a.valid_from) throw fieldError("valid_to", "End date can't be before the start date");
     await repo.updateAssignment(id, input, conn);
+    if (input.journl_access !== undefined) await journlAccess.onAccessToggled(actor, a, a.journl_access, input.journl_access, conn);
     const parts = [
       input.valid_to !== undefined && `end date ${input.valid_to ?? "open"}`,
       input.journl_access !== undefined && `JournL access ${input.journl_access ? "on" : "off"}`,
@@ -98,6 +106,7 @@ export async function endAllForUser(actor: AuthUser, userId: number, reason: str
   for (const a of active) {
     await repo.endAssignment(a.id, null, conn);
     await recordAudit(actor, { action: "Assignment ended", entityType: "Assignment", entityId: a.id, clientId: a.client_id, details: `${humanize(a.team_role)} · ${reason}` }, conn);
+    await journlAccess.onAssignmentEnded(actor, { id: a.id, client_id: a.client_id, user_id: userId }, Boolean(a.journl_access), reason, conn);
   }
   return active.length;
 }
@@ -109,6 +118,7 @@ export async function endAssignment(actor: AuthUser, id: number) {
     if (a.status === "ended") throw AppError.conflict("This assignment has already ended");
     await repo.endAssignment(id, null, conn);
     await recordAudit(actor, { action: "Assignment ended", entityType: "Assignment", entityId: id, clientId: a.client_id, details: humanize(a.team_role) }, conn);
+    await journlAccess.onAssignmentEnded(actor, a, a.journl_access, "assignment ended", conn);
   });
   return getAssignment(id);
 }

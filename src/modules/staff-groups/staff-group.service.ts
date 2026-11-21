@@ -4,6 +4,7 @@ import type { AuthUser } from "../../types/auth.types.js";
 import { AppError } from "../../utils/app-error.js";
 import { humanize } from "../../utils/format.js";
 import { recordAudit } from "../audit/audit.service.js";
+import * as journlAccess from "../journl-access-tasks/journl-access-task.service.js";
 import * as assignmentRepo from "../assignments/assignment.repository.js";
 import { findClientById } from "../clients/client.repository.js";
 import * as repo from "./staff-group.repository.js";
@@ -121,6 +122,7 @@ export async function assignGroup(actor: AuthUser, id: number, input: AssignGrou
         },
         conn,
       );
+      await journlAccess.onAssignmentCreated(actor, { id: assignmentId, client_id: client.id, user_id: m.user_id }, m.journl_access, conn);
       result.created.push({ assignment_id: assignmentId, full_name: m.full_name, team_role: m.team_role });
     }
     if (!result.created.length) {

@@ -1,3 +1,4 @@
+import { journlLink } from "../integrations/journl-link.js";
 import type { AuthUser } from "../../types/auth.types.js";
 import { AppError } from "../../utils/app-error.js";
 import { clientScope, isAdmin, isClientReviewer, requireClientAccess } from "../access/client-access.js";
@@ -71,7 +72,14 @@ export async function clientOverview(actor: AuthUser, clientId: number) {
     /** The caller's own JournL module permissions (one entry per active assignment; none for admins). */
     journl,
     /** The client's JournL connection; `session_until` is set while its books can be read. */
-    journl_connection: journlConnection && { status: journlConnection.status, org_id: journlConnection.external_org_id, org_name: journlConnection.external_org_name, session_until: journlConnection.session_until },
+    journl_connection: journlConnection && {
+      status: journlConnection.status,
+      org_id: journlConnection.external_org_id,
+      org_name: journlConnection.external_org_name,
+      session_until: journlConnection.session_until,
+      /** "Open in JournL": navigation only, no token in it. */
+      link: journlLink(journlConnection),
+    },
   };
 }
 
