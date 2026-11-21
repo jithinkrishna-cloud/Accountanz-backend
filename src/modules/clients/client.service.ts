@@ -8,6 +8,7 @@ import { findUserByEmail, insertUser } from "../users/user.repository.js";
 import type { AuthUser } from "../../types/auth.types.js";
 import { AppError } from "../../utils/app-error.js";
 import { recordAudit } from "../audit/audit.service.js";
+import * as onboardingRepo from "../onboarding/onboarding.repository.js";
 import * as repo from "./client.repository.js";
 import type {
   BranchInput,
@@ -40,6 +41,11 @@ export async function createClient(actor: AuthUser, input: ClientInput) {
     const newId = await repo.insertClient(input, conn);
     await repo.mirrorRegistrationToTax(newId, input.pan, input.gstin, conn);
     await recordAudit(actor, { action: "Client created", entityType: "Client", entityId: newId, clientId: newId, details: input.legal_name }, conn);
+    // A lead is a prospect: open its onboarding case too, so it shows in Prospects like one added there.
+    if (input.status === "lead") {
+      const caseId = await onboardingRepo.insertCase(newId, null, conn);
+      await recordAudit(actor, { action: "Prospect added", entityType: "OnboardingCase", entityId: caseId, clientId: newId, details: input.legal_name }, conn);
+    }
     return newId;
   });
   return getClient(id);
