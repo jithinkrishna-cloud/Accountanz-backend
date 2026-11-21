@@ -9,6 +9,7 @@ import { humanize } from "../../utils/format.js";
 import { sendMail } from "../../utils/mailer.js";
 import { recordAudit } from "../audit/audit.service.js";
 import { endAllForUser } from "../assignments/assignment.service.js";
+import { removeFromAllGroups } from "../staff-groups/staff-group.service.js";
 import { issueUserToken } from "../auth/auth.service.js";
 import { revokeAllRefreshTokens } from "../auth/auth.repository.js";
 import { findUserByEmail, insertUser } from "../users/user.repository.js";
@@ -133,6 +134,8 @@ export async function updateStaff(actor: AuthUser, userId: number, input: Update
     if (changes.status === "disabled" || rejected) await revokeAllRefreshTokens(userId, conn);
     const changed = [...new Set(Object.keys(changes).map((k) => (k.startsWith("bank_") ? "bank details" : k.replaceAll("_", " "))))].join(", ");
     await recordAudit(actor, { action: "Person updated", entityType: "User", entityId: userId, details: `${before.email}: ${changed}` }, conn);
+    // Groups only list people who can still be assigned.
+    if (changes.status === "disabled" || rejected) await removeFromAllGroups(actor, userId, `${before.full_name}, ${rejected ? "verification rejected" : "account disabled"}`, conn);
     // A rejected person loses client access too, not just sign-in.
     return rejected ? endAllForUser(actor, userId, "verification rejected", conn) : 0;
   });

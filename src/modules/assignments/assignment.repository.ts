@@ -16,12 +16,14 @@ const PHASE = `CASE
 const SELECT = `
   SELECT a.id, a.client_id, COALESCE(c.trade_name, c.legal_name) AS client_name, c.status AS client_status,
          a.user_id, u.full_name, u.email, u.portal_role, a.team_role, a.valid_from, a.valid_to, a.status,
-         ${PHASE} AS phase, a.journl_access, a.replaced_by_assignment_id, ru.full_name AS replaced_by_name, a.created_at
+         ${PHASE} AS phase, a.journl_access, a.replaced_by_assignment_id, ru.full_name AS replaced_by_name,
+         a.source_group_id, sg.name AS source_group_name, a.created_at
     FROM assignments a
     JOIN clients c ON c.id = a.client_id
     JOIN users u ON u.id = a.user_id
     LEFT JOIN assignments ra ON ra.id = a.replaced_by_assignment_id
-    LEFT JOIN users ru ON ru.id = ra.user_id`;
+    LEFT JOIN users ru ON ru.id = ra.user_id
+    LEFT JOIN staff_groups sg ON sg.id = a.source_group_id`;
 
 const toRow = (r: AssignmentRow): AssignmentRow => ({ ...r, journl_access: Boolean(r.journl_access) });
 
@@ -87,10 +89,14 @@ export function findAssignableStaff(userId: number) {
   );
 }
 
-export async function insertAssignment(input: AssignmentInput, db: Db = pool): Promise<number> {
+export async function insertAssignment(
+  input: Pick<AssignmentInput, "client_id" | "user_id" | "team_role" | "valid_from" | "valid_to" | "journl_access">,
+  db: Db = pool,
+  sourceGroupId: number | null = null,
+): Promise<number> {
   const r = await execute(
-    `INSERT INTO assignments (client_id, user_id, team_role, valid_from, valid_to, status, journl_access) VALUES (?, ?, ?, ?, ?, 'active', ?)`,
-    [input.client_id, input.user_id, input.team_role, input.valid_from, input.valid_to, input.journl_access],
+    `INSERT INTO assignments (client_id, user_id, team_role, valid_from, valid_to, status, journl_access, source_group_id) VALUES (?, ?, ?, ?, ?, 'active', ?, ?)`,
+    [input.client_id, input.user_id, input.team_role, input.valid_from, input.valid_to, input.journl_access, sourceGroupId],
     db,
   );
   return r.insertId;

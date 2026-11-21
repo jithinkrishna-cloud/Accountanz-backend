@@ -55,8 +55,8 @@ export async function listTeams(q: TeamListQuery): Promise<Paged<TeamRow>> {
 
   const members = teams.length
     ? await query<TeamMember & { client_id: number }>(
-        `SELECT a.client_id, a.id AS assignment_id, a.user_id, u.full_name, u.email, a.team_role, a.journl_access, a.valid_to
-           FROM assignments a JOIN users u ON u.id = a.user_id
+        `SELECT a.client_id, a.id AS assignment_id, a.user_id, u.full_name, u.email, a.team_role, a.journl_access, a.valid_to, sg.name AS source_group_name
+           FROM assignments a JOIN users u ON u.id = a.user_id LEFT JOIN staff_groups sg ON sg.id = a.source_group_id
           WHERE a.client_id IN (${teams.map(() => "?").join(",")})
             AND ${activeAssignmentSql("a")}
           ORDER BY FIELD(a.team_role, 'cfo', 'finance_manager', 'reviewer', 'bookkeeper'), u.full_name`,

@@ -28,6 +28,7 @@ import { staffRoutes } from "./staff/staff.routes.js";
 import { taskTemplateRoutes } from "./task-templates/task-template.routes.js";
 import { taskRoutes } from "./tasks/task.routes.js";
 import { teamRoutes } from "./teams/team.routes.js";
+import { staffGroupRoutes } from "./staff-groups/staff-group.routes.js";
 import { workspaceRoutes } from "./workspace/workspace.routes.js";
 import { accountantRequestAdminRoutes } from "./accountant-requests/accountant-request.routes.js";
 
@@ -45,6 +46,7 @@ adminRoutes.use("/packages", packageRoutes);
 adminRoutes.use("/staff", staffRoutes);
 adminRoutes.use("/assignments", assignmentRoutes);
 adminRoutes.use("/teams", teamRoutes);
+adminRoutes.use("/staff-groups", staffGroupRoutes);
 adminRoutes.use("/journl-permissions", journlPermissionRoutes);
 adminRoutes.use("/tasks", taskRoutes);
 adminRoutes.use("/task-templates", taskTemplateRoutes);
