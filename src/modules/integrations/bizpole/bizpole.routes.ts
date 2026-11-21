@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { journlEnabled } from "../../../middleware/journl-enabled.js";
 import { validate } from "../../../middleware/validate.js";
 import * as c from "./bizpole.controller.js";
 import { connectSchema, selectCompanySchema, staffParams, staffQuery } from "./bizpole.validation.js";
@@ -8,6 +9,7 @@ import { connectSchema, selectCompanySchema, staffParams, staffQuery } from "./b
  * company context). Connect / choose / disconnect are owner-only (checked in the service).
  */
 export const bizpoleOwnerRoutes = Router();
+bizpoleOwnerRoutes.use(journlEnabled);
 bizpoleOwnerRoutes.get("/", c.status);
 bizpoleOwnerRoutes.post("/connect", validate({ body: connectSchema }), c.connect);
 bizpoleOwnerRoutes.post("/company", validate({ body: selectCompanySchema }), c.selectCompany);
@@ -18,4 +20,4 @@ bizpoleOwnerRoutes.post("/disconnect", c.disconnect);
  * the user works on that client (else 404) and is audited. GET only: there are no write routes.
  */
 export const bizpoleStaffRoutes = Router();
-bizpoleStaffRoutes.get("/clients/:id/bizpole/:resource", validate({ params: staffParams, query: staffQuery }), c.read);
+bizpoleStaffRoutes.get("/clients/:id/bizpole/:resource", journlEnabled, validate({ params: staffParams, query: staffQuery }), c.read);

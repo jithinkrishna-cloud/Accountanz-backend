@@ -2,6 +2,7 @@ import { Router } from "express";
 import { authenticate } from "../../middleware/authenticate.js";
 import { authorize } from "../../middleware/authorize.js";
 import { validate } from "../../middleware/validate.js";
+import { journlEnabled } from "../../middleware/journl-enabled.js";
 import { ACCOUNTANT_ROLES } from "../../types/auth.types.js";
 import * as controller from "./correction.controller.js";
 import { approveBody, clientParams, commentBody, correctionInputSchema, correctionParams, resolveBody } from "./correction.controller.js";
@@ -15,7 +16,7 @@ import { approveBody, clientParams, commentBody, correctionInputSchema, correcti
 export const correctionRoutes = Router();
 
 const BASE = "/clients/:id/journl/corrections";
-correctionRoutes.use([BASE, "/journl/corrections"], authenticate, authorize(...ACCOUNTANT_ROLES, "super_admin"));
+correctionRoutes.use([BASE, "/journl/corrections"], journlEnabled, authenticate, authorize(...ACCOUNTANT_ROLES, "super_admin"));
 correctionRoutes.get("/journl/corrections/awaiting", controller.awaiting);
 correctionRoutes.get(BASE, validate({ params: clientParams }), controller.list);
 correctionRoutes.post(BASE, validate({ params: clientParams, body: correctionInputSchema }), controller.create);

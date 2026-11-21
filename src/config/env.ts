@@ -4,7 +4,7 @@ import { z } from "zod";
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(4000),
-  APP_URL: z.url().default("http://localhost:3000"),
+  APP_URL: z.url().default("http://localhost:30001"),
   /** Extra browser origins allowed by CORS besides APP_URL, comma-separated (e.g. a dev tunnel). */
   CORS_ORIGINS: z
     .string()
@@ -42,6 +42,14 @@ const schema = z.object({
     .string()
     .optional()
     .refine((v) => !v || /^https:\/\//.test(v), "JOURNL_APP_URL_TEMPLATE must start with https://"),
+  /**
+   * Master switch for the whole JournL integration (connection codes, JournL Books, corrections, JournL permissions).
+   * Off by default: accountants sign in to JournL directly, and Accountanz only links to JournL's sign-in page.
+   */
+  JOURNL_INTEGRATION_ENABLED: z
+    .enum(["true", "false", "1", "0"])
+    .default("false")
+    .transform((v) => v === "true" || v === "1"),
   /** Master switch for writing corrections to JournL. Off unless explicitly enabled. */
   JOURNL_WRITES_ENABLED: z
     .enum(["true", "false", "1", "0"])

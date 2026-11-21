@@ -29,6 +29,10 @@ vi.mock("../../middleware/authenticate.js", () => ({
     next();
   },
 }));
+// These tests cover the routes with the JournL integration switched on; journl-enabled.test.ts covers the switch itself.
+vi.mock("../../middleware/journl-enabled.js", () => ({
+  journlEnabled: (_req: express.Request, _res: express.Response, next: express.NextFunction) => next(),
+}));
 vi.mock("./correction.service.js", () => ({
   list: m.list,
   createDraft: m.createDraft,

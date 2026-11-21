@@ -71,6 +71,8 @@ export async function clientOverview(actor: AuthUser, clientId: number) {
     can_review: await isClientReviewer(actor, clientId),
     /** The caller's own JournL module permissions (one entry per active assignment; none for admins). */
     journl,
+    /** "Open in JournL", present even without a connection (the integration-off case links to JournL's sign-in). */
+    journl_link: journlLink(journlConnection),
     /** The client's JournL connection; `session_until` is set while its books can be read. */
     journl_connection: journlConnection && {
       status: journlConnection.status,
