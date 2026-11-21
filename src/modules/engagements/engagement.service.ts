@@ -124,7 +124,7 @@ export async function uploadAgreement(actor: AuthUser, id: number, file: Express
       if (!e) throw AppError.notFound("Engagement");
       if (e.status === "ended") throw AppError.conflict("An ended engagement can't take a new agreement");
       replaced = e.agreement_file_path;
-      await repo.setAgreement(id, stored, fileName, conn);
+      await repo.setAgreement(id, stored, fileName, actor.id, conn);
       await recordAudit(actor, { action: "Agreement uploaded", entityType: "Engagement", entityId: id, clientId: e.client_id, details: fileName }, conn);
     });
   } catch (err) {

@@ -137,7 +137,7 @@ export async function saveServiceRequirements(actor: AuthUser, caseId: number, i
 
 /**
  * Moves a case along its stages. Sending a proposal needs a complete assessment.
- * Accepting turns the lead into an onboarding client and opens a draft engagement on the suggested package.
+ * Accepting turns the lead into an onboarding client and opens an accepted engagement on the suggested package.
  */
 export async function changeStage(actor: AuthUser, id: number, input: StageInput) {
   await withTransaction(async (conn) => {
@@ -181,7 +181,7 @@ export async function changeStage(actor: AuthUser, id: number, input: StageInput
 
 /**
  * What accepting a proposal does, whoever accepts it (the client in their portal, or staff after a call):
- * records who and how, moves a lead to onboarding and opens a draft engagement on the proposed package.
+ * records who and how, moves a lead to onboarding and opens an accepted engagement on the proposed package.
  * Activation is a separate, later step (signed agreement, then activate). Returns audit detail text.
  */
 export async function acceptOnCase(
@@ -196,14 +196,19 @@ export async function acceptOnCase(
   if (client?.status === "lead") await clientRepo.updateClient(oc.client_id, { status: "onboarding" }, conn);
   const open = await engagementRepo.findOpenEngagement(oc.client_id, conn);
   const fee = oc.suggested_monthly_fee == null ? null : Number(oc.suggested_monthly_fee);
-  if (open?.status === "draft") {
-    // A draft the client opened from the catalogue: it now follows the accepted proposal.
+  // The accepted proposal is the commercial agreement, so the engagement starts at "accepted":
+  // what's left is uploading the signed agreement and activating. No second send/accept round.
+  if (open?.status === "draft" || open?.status === "sent") {
+    // An engagement the client opened from the catalogue: it now follows the accepted proposal.
     await engagementRepo.updateEngagement(open.id, { package_id: oc.suggested_package_id!, monthly_fee: fee }, conn);
-    details += `; draft engagement #${open.id} set to the proposed package and fee`;
+    await engagementRepo.setStatus(open.id, "accepted", conn);
+    await recordAudit(actor, { action: "Engagement status changed", entityType: "Engagement", entityId: open.id, clientId: oc.client_id, details: `${humanize(open.status)} → Accepted (proposal accepted by the ${via})` }, conn);
+    details += `; engagement #${open.id} set to the proposed package and fee, and accepted`;
   } else if (!open) {
     const engagementId = await engagementRepo.insertEngagement({ client_id: oc.client_id, package_id: oc.suggested_package_id!, monthly_fee: fee, start_date: null, renewal_date: null }, conn);
-    await recordAudit(actor, { action: "Engagement created", entityType: "Engagement", entityId: engagementId, clientId: oc.client_id, details: `Draft opened from proposal accepted by the ${via}` }, conn);
-    details += `; draft engagement #${engagementId} opened`;
+    await engagementRepo.setStatus(engagementId, "accepted", conn);
+    await recordAudit(actor, { action: "Engagement created", entityType: "Engagement", entityId: engagementId, clientId: oc.client_id, details: `Opened as accepted from proposal accepted by the ${via}` }, conn);
+    details += `; engagement #${engagementId} opened as accepted`;
   }
   return details;
 }

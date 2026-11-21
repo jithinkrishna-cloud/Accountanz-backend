@@ -42,6 +42,8 @@ export interface OnboardingCaseRow {
   accepted_via: "client" | "team" | null;
   /** Active owner logins: without one, the client can't see or accept the proposal online. */
   owner_logins: number;
+  /** Owners invited who haven't set a password yet (they can't sign in until they do). */
+  owner_invites: number;
   /** Latest engagement for the client, so an accepted case can link straight to it. */
   engagement_id: number | null;
   engagement_status: string | null;

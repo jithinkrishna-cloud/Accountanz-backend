@@ -18,6 +18,7 @@ const SELECT = `
          u.full_name AS assessed_by_name, oc.suggested_package_id, p.name AS suggested_package_name, oc.suggested_monthly_fee, oc.package_source,
          oc.proposal_message, oc.proposal_sent_at, oc.accepted_at, ab.full_name AS accepted_by_name, oc.accepted_via,
          (SELECT COUNT(*) FROM client_users cu JOIN users ou ON ou.id = cu.user_id WHERE cu.client_id = oc.client_id AND cu.role = 'owner' AND ou.status = 'active') AS owner_logins,
+         (SELECT COUNT(*) FROM client_users cu JOIN users ou ON ou.id = cu.user_id WHERE cu.client_id = oc.client_id AND cu.role = 'owner' AND ou.status = 'invited') AS owner_invites,
          e.id AS engagement_id, e.status AS engagement_status, e.package_id AS engagement_package_id, ep.name AS engagement_package_name,
          COALESCE(e.monthly_fee, ep.monthly_fee) AS engagement_monthly_fee,
          pcr.id AS pending_change_id, tp.name AS pending_change_package_name, pcr.source AS pending_change_source,

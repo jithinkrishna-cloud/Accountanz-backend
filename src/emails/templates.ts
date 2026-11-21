@@ -374,7 +374,7 @@ export function proposalAcceptedEmail(d: { recipientName: string; company: strin
       preheader: `${d.acceptedBy} accepted ${d.packageName}`,
       body:
         paragraph(`Hi ${d.recipientName},`) +
-        paragraph(`${d.acceptedBy} accepted the ${d.packageName} proposal${d.inPortal ? " in the client portal" : ""}. A draft engagement is ready: send the agreement, upload it once signed, then activate.`) +
+        paragraph(`${d.acceptedBy} accepted the ${d.packageName} proposal${d.inPortal ? " in the client portal" : ""}. The engagement is ready: upload the signed agreement, then activate.`) +
         facts([["Company", d.company], ["Package", d.packageName], ["Monthly fee", `${inr(d.fee)} + GST`]]) +
         button("Open engagements", url),
     }),
