@@ -15,6 +15,10 @@ describe("journlLink", () => {
     expect(journlLink({ status: "connected", external_org_id: null }, T)).toEqual({ state: "unavailable", status: "connected" });
   });
 
+  it("uses the address as-is when it has no {companyId} (JournL picks the company from the login)", () => {
+    expect(journlLink({ status: "connected", external_org_id: "42" }, "https://books.example.test/")).toEqual({ state: "ready", url: "https://books.example.test/" });
+  });
+
   it("says not configured when the template is missing", () => {
     expect(journlLink({ status: "connected", external_org_id: "42" }, undefined)).toEqual({ state: "not_configured" });
   });

@@ -34,14 +34,14 @@ const schema = z.object({
   /** 32-byte base64 key that encrypts stored JournL session tokens. Without it, JournL data can't be read. */
   JOURNL_TOKEN_KEY: z.string().refine((v) => Buffer.from(v, "base64").length === 32, "JOURNL_TOKEN_KEY must be 32 bytes, base64").optional(),
   /**
-   * Web address that opens one JournL company, with `{companyId}` where the company ID goes
-   * (e.g. https://app.example.com/company/{companyId}). Powers "Open in JournL". The link carries no token:
-   * JournL decides who is signed in. Unset = the button says the link isn't configured.
+   * JournL web address for "Open in JournL" (https). JournL picks the company from the login, not the URL, so today
+   * this is just its sign-in page; `{companyId}` is filled in if JournL ever adds per-company links. The link never
+   * carries a token. Unset = the button says the link isn't configured.
    */
   JOURNL_APP_URL_TEMPLATE: z
     .string()
     .optional()
-    .refine((v) => !v || (/^https:\/\//.test(v) && v.includes("{companyId}")), "JOURNL_APP_URL_TEMPLATE must start with https:// and contain {companyId}"),
+    .refine((v) => !v || /^https:\/\//.test(v), "JOURNL_APP_URL_TEMPLATE must start with https://"),
   /** Master switch for writing corrections to JournL. Off unless explicitly enabled. */
   JOURNL_WRITES_ENABLED: z
     .enum(["true", "false", "1", "0"])
