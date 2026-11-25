@@ -12,7 +12,7 @@ import * as c from "./client-portal.controller.js";
 import { requireContext } from "./client-portal.service.js";
 import { exploreRoutes } from "../accountant-requests/accountant-request.routes.js";
 import { messageParam } from "../communication/communication.validation.js";
-import { approvalDecisionSchema, meetingRequestSchema, newThreadSchema, portalClientUpdateSchema, replySchema, settingsSchema, tasksQuerySchema, uploadMetaSchema } from "./client-portal.validation.js";
+import { approvalDecisionSchema, clientTaskSchema, meetingRequestSchema, newThreadSchema, portalClientUpdateSchema, replySchema, settingsSchema, tasksQuerySchema, uploadMetaSchema } from "./client-portal.validation.js";
 import { activity as jlActivity, catalog as jlCatalog, team as jlTeam, setModule as jlSetModule } from "./journl-client-permission.controller.js";
 import { modulePermissionBody, modulePermissionParams } from "../journl-permissions/permission.validation.js";
 import { bizpoleOwnerRoutes } from "../integrations/bizpole/bizpole.routes.js";
@@ -42,6 +42,7 @@ clientPortalRoutes.post("/documents", documentUpload(), multipartFields(uploadMe
 clientPortalRoutes.get("/documents/:id/file", validate({ params: idParam }), c.downloadDocument);
 clientPortalRoutes.get("/requests", c.requests);
 clientPortalRoutes.get("/tasks", validate({ query: tasksQuerySchema }), c.tasks);
+clientPortalRoutes.post("/tasks", validate({ body: clientTaskSchema }), c.createTask);
 clientPortalRoutes.get("/reports", c.reports);
 clientPortalRoutes.get("/reports/:id/file", validate({ params: idParam }), c.downloadReport);
 clientPortalRoutes.get("/approvals", c.approvals);

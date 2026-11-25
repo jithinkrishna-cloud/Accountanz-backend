@@ -20,8 +20,14 @@ async function canManageTasks(actor: AuthUser, clientId: number) {
 
 async function assertCanManage(actor: AuthUser, clientId: number) {
   if (!(await canManageTasks(actor, clientId))) {
-    throw AppError.forbidden(TASK_MANAGER_ROLES.includes(actor.role) ? "You aren't assigned to this client" : "Only finance managers, CFOs and admins can create or edit tasks");
+    throw AppError.forbidden(TASK_MANAGER_ROLES.includes(actor.role) ? "You aren't assigned to this client" : "Only finance managers, CFOs and admins can edit tasks");
   }
+}
+
+/** Every staff role can create tasks: admins on every client, accountants on clients they're assigned to today. Client owners use createTaskForClient. */
+async function assertCanCreate(actor: AuthUser, clientId: number) {
+  if (isAdmin(actor) || (await activeTeamRoles(actor.id, clientId)).length > 0) return;
+  throw AppError.forbidden("You aren't assigned to this client");
 }
 
 /** Reviewing needs a reviewer-type assignment on the client (or admin), and never your own work. */
@@ -112,7 +118,7 @@ export async function getTaskDetail(actor: AuthUser, id: number): Promise<TaskDe
 export async function getTaskOptions(actor: AuthUser, clientId?: number): Promise<TaskOptions> {
   const clients = await repo.listClientOptions(isAdmin(actor) ? null : actor.id);
   if (!clientId) return { clients, engagements: [], assignees: [], reviewers: [] };
-  await assertCanManage(actor, clientId);
+  await assertCanCreate(actor, clientId);
   const [engagements, team, admins] = await Promise.all([repo.listActiveEngagements(clientId), repo.listClientTeam(clientId), repo.listActiveAdmins()]);
   const reviewers = [
     ...team.filter((m) => (REVIEWER_TEAM_ROLES as readonly string[]).includes(m.team_role)).map((m) => ({ user_id: m.user_id, full_name: m.full_name, role: m.team_role })),
@@ -124,7 +130,7 @@ export async function getTaskOptions(actor: AuthUser, clientId?: number): Promis
 // ───────────────────────────── Create / edit ─────────────────────────────
 
 export async function createTask(actor: AuthUser, input: CreateTaskInput) {
-  await assertCanManage(actor, input.client_id);
+  await assertCanCreate(actor, input.client_id);
   const engagement = await repo.findEngagement(input.engagement_id);
   if (!engagement || engagement.client_id !== input.client_id) throw fieldError("engagement_id", "Pick an engagement of this client");
   if (engagement.status !== "active") throw fieldError("engagement_id", "Tasks can only be added to an active engagement");
@@ -154,6 +160,64 @@ export async function createTask(actor: AuthUser, input: CreateTaskInput) {
   });
   void notifyTaskAssigned(id, actor);
   return getTaskDetail(actor, id);
+}
+
+export interface ClientTaskInput {
+  title: string;
+  description: string | null;
+  due_date: string;
+  checklist: string[];
+}
+
+/**
+ * The company owner asks for a task from the Client Portal. It's assigned like a generated task: the client's
+ * bookkeeper does it and their finance manager / reviewer / CFO reviews it, on the client's current active engagement.
+ * Client-visible always, so the owner can follow it on their Progress page.
+ */
+export async function createTaskForClient(actor: AuthUser, client: { clientId: number; role: "owner" | "member" }, input: ClientTaskInput) {
+  if (client.role !== "owner") throw AppError.forbidden("Only the company owner can create tasks");
+  const [engagements, team] = await Promise.all([repo.listActiveEngagements(client.clientId), repo.listClientTeam(client.clientId)]);
+  const engagement = engagements[0];
+  if (!engagement) throw new AppError("VALIDATION_ERROR", "Your company has no active engagement yet, so tasks can't be added. Contact your accounting team.");
+
+  const pick = (roles: string[]) => {
+    for (const role of roles) {
+      const member = team.find((m) => m.team_role === role);
+      if (member) return member.user_id;
+    }
+    return null;
+  };
+  const assigneeId = pick(["bookkeeper", ...REVIEWER_PREFERENCE]);
+  const reviewerId = team.find((m) => REVIEWER_PREFERENCE.includes(m.team_role) && m.user_id !== assigneeId)?.user_id ?? null;
+  if (!assigneeId || !reviewerId) {
+    throw new AppError("VALIDATION_ERROR", "Your accounting team isn't fully assigned yet (it needs someone to do the work and someone to review it). Contact your accounting team.");
+  }
+
+  const period = input.due_date.slice(0, 7);
+  await assertPeriodOpen(client.clientId, period);
+  const checklist = input.checklist.length ? input.checklist : [input.title];
+  const id = await withTransaction(async (conn) => {
+    const newId = await repo.insertManualTask(
+      {
+        clientId: client.clientId,
+        engagementId: engagement.id,
+        period,
+        title: input.title,
+        description: input.description,
+        checklist: checklist.map((text) => ({ text, done: false })),
+        createdBy: actor.id,
+        assigneeId,
+        reviewerId,
+        dueDate: input.due_date,
+        clientVisible: true,
+      },
+      conn,
+    );
+    await recordAudit(actor, { action: "Task created", entityType: "Task", entityId: newId, clientId: client.clientId, details: `${input.title} (${period}) · requested by client owner` }, conn);
+    return newId;
+  });
+  void notifyTaskAssigned(id, actor);
+  return { id, title: input.title, period, due_date: input.due_date };
 }
 
 /** Keeps ticks on checklist points whose text is unchanged. */

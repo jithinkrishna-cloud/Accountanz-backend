@@ -20,6 +20,19 @@ export const uploadMetaSchema = z.object({
 
 export const tasksQuerySchema = z.object({ period: periodSchema.optional() });
 
+/** Company owner asks for a task. People and engagement are assigned automatically. */
+export const clientTaskSchema = z.object({
+  title: z.string().trim().min(2, "Enter a title").max(200),
+  description: optionalText(5000),
+  due_date: z.iso.date("Pick a due date"),
+  checklist: z
+    .array(z.string().trim().max(200, "Keep each point under 200 characters"))
+    .default([])
+    .transform((points) => points.filter(Boolean))
+    .pipe(z.array(z.string()).max(30, "Use at most 30 points")),
+});
+export type ClientTaskInput = z.infer<typeof clientTaskSchema>;
+
 export const approvalDecisionSchema = z
   .object({
     decision: z.enum(["approved", "rejected"]),

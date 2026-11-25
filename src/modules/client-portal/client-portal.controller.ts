@@ -4,6 +4,7 @@ import type { IdParam } from "../../middleware/validate.js";
 import type { StoredFile } from "../../utils/file-storage.js";
 import * as service from "./client-portal.service.js";
 import * as clientService from "../clients/client.service.js";
+import * as taskService from "../tasks/task.service.js";
 import type { ClientContext } from "./client-portal.types.js";
 import type { ClientUpdateInput } from "../clients/client.validation.js";
 import type { PortalClientUpdateInput, UploadMeta } from "./client-portal.validation.js";
@@ -48,6 +49,7 @@ export async function withdrawMeetingRequest(req: Request, res: Response) {
 }
 export const billing = async (_req: Request, res: Response) => void res.json(await service.getBilling(ctx(res)));
 export const tasks = async (_req: Request, res: Response) => void res.json(await service.getTasks(ctx(res), (res.locals.query as { period?: string }).period));
+export const createTask = async (req: Request, res: Response) => void res.status(201).json(await taskService.createTaskForClient(req.user!, ctx(res), req.body));
 export const settings = async (_req: Request, res: Response) => void res.json(await service.getSettings(ctx(res)));
 
 export async function upload(req: Request, res: Response) {
