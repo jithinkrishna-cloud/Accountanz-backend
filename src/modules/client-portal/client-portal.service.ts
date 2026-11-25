@@ -280,3 +280,23 @@ export async function choosePackage(actor: AuthUser, ctx: ClientContext, package
   });
   return getPackages(ctx);
 }
+
+/**
+ * Everything one accountant does for this company, on one page: who they are, the jobs they do or check (with
+ * progress), the documents and approvals they've asked for, conversations they're in and meetings with them.
+ * Only people on the company's team today; anyone else is "not found" (no probing other staff).
+ */
+export async function getMemberOverview(ctx: ClientContext, userId: number) {
+  const roles = await repo.memberOnTeam(ctx.clientId, userId);
+  if (!roles.length) throw AppError.notFound("Team member");
+  const [tasks, requests, approvals, threads, meetings] = await Promise.all([
+    repo.memberTasks(ctx.clientId, userId, roles.some((r) => r.team_role === "cfo")),
+    repo.memberRequests(ctx.clientId, userId),
+    repo.memberApprovals(ctx.clientId, userId),
+    repo.memberThreads(ctx.clientId, userId),
+    repo.memberMeetings(ctx.clientId, userId),
+  ]);
+  const { user_id, full_name, email, phone } = roles[0]!;
+  const since = roles.map((r) => r.valid_from).sort()[0]!;
+  return { member: { user_id, full_name, email, phone, team_roles: roles.map((r) => r.team_role), since }, tasks, requests, approvals, threads, meetings };
+}

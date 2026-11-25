@@ -299,3 +299,66 @@ export const openEngagement = (clientId: number, conn?: PoolConnection) =>
     [clientId],
     conn,
   );
+
+// ── Accountant overview (one team member, everything they do for this client) ──
+/** The person's active roles on this client today. Empty = not on the client's team (the overview then 404s). */
+export const memberOnTeam = (clientId: number, userId: number) =>
+  query<{ user_id: number; full_name: string; email: string; phone: string | null; team_role: string; valid_from: string }>(
+    `SELECT u.id AS user_id, u.full_name, u.email, u.phone, a.team_role, DATE_FORMAT(a.valid_from, '%Y-%m-%d') AS valid_from
+       FROM assignments a JOIN users u ON u.id = a.user_id
+      WHERE a.client_id = ? AND a.user_id = ? AND ${activeAssignmentSql("a")} AND u.status = 'active'
+      ORDER BY FIELD(a.team_role, 'cfo', 'finance_manager', 'reviewer', 'bookkeeper')`,
+    [clientId, userId],
+  );
+
+/** Client-visible tasks the person does or checks (or, for a CFO who oversees the account, every task), open work first. */
+export const memberTasks = (clientId: number, userId: number, oversees = false) =>
+  query<{ id: number; title: string; description: string | null; period: string; status: string; due_date: string | null; checklist: { text: string; done: boolean }[]; assignee_id: number | null; handled_by: string | null; reviewer_id: number | null; checked_by: string | null }>(
+    `SELECT t.id, t.title, t.description, t.period, t.status, t.due_date, t.checklist, t.assignee_id, a.full_name AS handled_by, t.reviewer_id, r.full_name AS checked_by
+       FROM tasks t LEFT JOIN users a ON a.id = t.assignee_id LEFT JOIN users r ON r.id = t.reviewer_id
+      WHERE t.client_id = ? AND t.client_visible = 1 AND (? OR t.assignee_id = ? OR t.reviewer_id = ?)
+      ORDER BY t.status = 'approved', t.period DESC, t.due_date IS NULL, t.due_date, t.id
+      LIMIT 200`,
+    [clientId, oversees, userId, userId],
+  );
+
+export const memberRequests = (clientId: number, userId: number) =>
+  query<{ id: number; description: string; due_date: string | null; period: string | null; status: string; files: number }>(
+    `SELECT r.id, r.description, r.due_date, r.period, r.status, (SELECT COUNT(*) FROM documents d WHERE d.request_id = r.id) AS files
+       FROM document_requests r
+      WHERE r.client_id = ? AND r.requested_by = ? AND r.status <> 'cancelled'
+      ORDER BY r.status = 'open' DESC, r.due_date IS NULL, r.due_date, r.id DESC`,
+    [clientId, userId],
+  );
+
+export const memberApprovals = (clientId: number, userId: number) =>
+  query<{ id: number; subject: string; status: string; created_at: string; decided_at: string | null }>(
+    `SELECT a.id, a.subject, a.status, a.created_at, a.decided_at FROM client_approvals a
+      WHERE a.client_id = ? AND a.requested_by = ? ORDER BY a.status = 'pending' DESC, a.created_at DESC`,
+    [clientId, userId],
+  );
+
+/** Client-visible conversations the person has written in, latest activity first. */
+export const memberThreads = (clientId: number, userId: number) =>
+  query<{ id: number; subject: string | null; messages: number; last_at: string | null; last_body: string | null; last_author: string | null }>(
+    `SELECT t.id, t.subject,
+            (SELECT COUNT(*) FROM messages m WHERE m.thread_id = t.id) AS messages,
+            (SELECT MAX(m.created_at) FROM messages m WHERE m.thread_id = t.id) AS last_at,
+            (SELECT m.body FROM messages m WHERE m.thread_id = t.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_body,
+            (SELECT u.full_name FROM messages m LEFT JOIN users u ON u.id = m.author_id WHERE m.thread_id = t.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_author
+       FROM message_threads t
+      WHERE t.client_id = ? AND t.visibility = 'client' AND EXISTS (SELECT 1 FROM messages m WHERE m.thread_id = t.id AND m.author_id = ?)
+      ORDER BY COALESCE(last_at, t.created_at) DESC
+      LIMIT 20`,
+    [clientId, userId],
+  );
+
+/** Meetings the person organises or attends, upcoming first, then the most recent. */
+export const memberMeetings = (clientId: number, userId: number) =>
+  query<{ id: number; title: string; starts_at: string; ends_at: string; meeting_link: string | null }>(
+    `SELECT mt.id, mt.title, mt.starts_at, mt.ends_at, mt.meeting_link FROM meetings mt
+      WHERE mt.client_id = ? AND (mt.organiser_id = ? OR EXISTS (SELECT 1 FROM meeting_attendees ma WHERE ma.meeting_id = mt.id AND ma.user_id = ?))
+      ORDER BY mt.starts_at < UTC_TIMESTAMP(), CASE WHEN mt.starts_at >= UTC_TIMESTAMP() THEN mt.starts_at END, mt.starts_at DESC
+      LIMIT 10`,
+    [clientId, userId, userId],
+  );

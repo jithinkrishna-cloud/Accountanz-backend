@@ -34,6 +34,7 @@ clientPortalRoutes.use(exploreRoutes);
 clientPortalRoutes.get("/dashboard", c.dashboard);
 clientPortalRoutes.get("/business", c.business);
 clientPortalRoutes.get("/team", c.team);
+clientPortalRoutes.get("/team/:id", validate({ params: idParam }), c.teamMember);
 clientPortalRoutes.get("/software", c.software);
 clientPortalRoutes.post("/software/journl/disconnect", journlEnabled, c.disconnectJournl);
 clientPortalRoutes.use("/software/bizpole", bizpoleOwnerRoutes);

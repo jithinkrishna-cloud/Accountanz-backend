@@ -31,6 +31,7 @@ export async function context(req: Request, res: Response) {
 export const dashboard = async (_req: Request, res: Response) => void res.json(await service.getDashboard(ctx(res)));
 export const business = async (_req: Request, res: Response) => void res.json(await service.getBusiness(ctx(res)));
 export const team = async (_req: Request, res: Response) => void res.json({ items: await service.getTeam(ctx(res)) });
+export const teamMember = async (_req: Request, res: Response) => void res.json(await service.getMemberOverview(ctx(res), idOf(res)));
 export const software = async (_req: Request, res: Response) => void res.json({ items: await service.getSoftware(ctx(res)) });
 export const disconnectJournl = async (req: Request, res: Response) => void res.json({ items: await service.disconnectJournl(req.user!, ctx(res)) });
 
