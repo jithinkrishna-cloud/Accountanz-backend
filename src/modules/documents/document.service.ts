@@ -5,6 +5,8 @@ import { deleteFile, openFile, saveFile } from "../../utils/file-storage.js";
 import { clientScope, requireClientAccess } from "../access/client-access.js";
 import { recordAudit } from "../audit/audit.service.js";
 import { notifyDocumentRequested } from "../notifications/notification.service.js";
+import { listFoldersForClients } from "../document-folders/document-folder.repository.js";
+import { folderPaths } from "../document-folders/document-folder.service.js";
 import * as repo from "./document.repository.js";
 import type { DocumentRow, DocumentStatus } from "./document.types.js";
 import type { CreateRequestInput, DocumentListQuery, RequestListQuery, StaffUploadInput } from "./document.validation.js";
@@ -30,7 +32,10 @@ async function assertTaskOnClient(taskId: number | null | undefined, clientId: n
 
 export async function listDocuments(actor: AuthUser, q: DocumentListQuery) {
   const page = await repo.listDocuments(q, clientScope(actor, "d.client_id"));
-  return { ...page, items: page.items.map(toView) };
+  // The client's own folder ("Bank / 2026 / March") so staff can see where a file was filed.
+  const clientIds = [...new Set(page.items.filter((d) => d.folder_id).map((d) => d.client_id))];
+  const paths = folderPaths(await listFoldersForClients(clientIds));
+  return { ...page, items: page.items.map((d) => ({ ...toView(d), folder_path: d.folder_id ? (paths.get(d.folder_id) ?? null) : null })) };
 }
 
 export async function changeStatus(actor: AuthUser, id: number, status: DocumentStatus) {

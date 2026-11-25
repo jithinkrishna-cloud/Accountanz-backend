@@ -9,6 +9,7 @@ import { notifyApprovalDecided, notifyClientMessage, notifyDocumentReceived, not
 import { setClientSoftware } from "../integrations/integration.repository.js";
 import { insertEngagement, updateEngagement as updateEngagementRow } from "../engagements/engagement.repository.js";
 import { acceptByClient } from "../onboarding/onboarding.service.js";
+import { assertUploadFolder } from "../document-folders/document-folder.service.js";
 import { clientProposal } from "../onboarding/onboarding.repository.js";
 import { syncCaseWithEngagement } from "../onboarding/onboarding.sync.js";
 import { pendingChangeForClient } from "../package-changes/package-change.repository.js";
@@ -115,13 +116,14 @@ export async function getBilling(ctx: ClientContext) {
  * tells the person who asked. The stored file is removed again if the database write fails.
  */
 export async function uploadDocument(actor: AuthUser, ctx: ClientContext, meta: UploadMeta, file: Express.Multer.File) {
+  await assertUploadFolder(ctx.clientId, meta.folder_id);
   const key = await saveFile("documents", file.originalname, file.buffer, file.mimetype);
   try {
     const result = await withTransaction(async (conn) => {
       const request = meta.request_id ? await repo.lockOpenRequest(ctx.clientId, meta.request_id, conn) : null;
       if (meta.request_id && !request) throw new AppError("CONFLICT", "That request is no longer open");
       const id = await repo.insertDocument(
-        { clientId: ctx.clientId, requestId: request?.id ?? null, userId: actor.id, category: meta.category, period: meta.period ?? request?.period ?? null, path: key, name: file.originalname, mime: file.mimetype, size: file.size },
+        { clientId: ctx.clientId, requestId: request?.id ?? null, folderId: meta.folder_id ?? null, userId: actor.id, category: meta.category, period: meta.period ?? request?.period ?? null, path: key, name: file.originalname, mime: file.mimetype, size: file.size },
         conn,
       );
       if (request) await repo.fulfilRequest(request.id, conn);

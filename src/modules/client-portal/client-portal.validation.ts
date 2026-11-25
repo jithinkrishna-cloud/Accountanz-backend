@@ -16,6 +16,8 @@ export const uploadMetaSchema = z.object({
   category: z.enum(DOCUMENT_CATEGORIES).default("other"),
   period: periodSchema.optional().or(z.literal("").transform(() => undefined)),
   request_id: z.coerce.number().int().positive().optional().or(z.literal("").transform(() => undefined)),
+  /** Document Centre folder to put the file in; blank = top level. */
+  folder_id: z.coerce.number().int().positive().optional().or(z.literal("").transform(() => undefined)),
 });
 
 export const tasksQuerySchema = z.object({ period: periodSchema.optional() });

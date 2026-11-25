@@ -19,6 +19,7 @@ export interface DocumentRow {
   from_client: 0 | 1;
   request_id: number | null;
   task_id: number | null;
+  folder_id: number | null;
   created_at: string;
 }
 

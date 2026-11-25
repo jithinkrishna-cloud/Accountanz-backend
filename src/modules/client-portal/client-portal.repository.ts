@@ -121,8 +121,8 @@ export async function disconnectJournlConnection(id: number, conn: PoolConnectio
 
 // ── Documents & requests ──
 export const listDocuments = (clientId: number) =>
-  query<{ id: number; file_name: string; category: string; period: string | null; status: string; review_note: string | null; created_at: string; uploaded_by: string | null; request_id: number | null }>(
-    `SELECT d.id, d.file_name, d.category, d.period, d.status, d.review_note, d.created_at, u.full_name AS uploaded_by, d.request_id
+  query<{ id: number; file_name: string; category: string; period: string | null; status: string; review_note: string | null; created_at: string; uploaded_by: string | null; request_id: number | null; folder_id: number | null; size_bytes: number | null }>(
+    `SELECT d.id, d.file_name, d.category, d.period, d.status, d.review_note, d.created_at, u.full_name AS uploaded_by, d.request_id, d.folder_id, d.size_bytes
        FROM documents d LEFT JOIN users u ON u.id = d.uploaded_by WHERE d.client_id = ? ORDER BY d.created_at DESC, d.id DESC`,
     [clientId],
   );
@@ -147,11 +147,11 @@ export const lockOpenRequest = (clientId: number, id: number, db: PoolConnection
     db,
   );
 
-export async function insertDocument(d: { clientId: number; requestId: number | null; userId: number; category: string; period: string | null; path: string; name: string; mime: string; size: number }, db: Db) {
+export async function insertDocument(d: { clientId: number; requestId: number | null; folderId?: number | null; userId: number; category: string; period: string | null; path: string; name: string; mime: string; size: number }, db: Db) {
   const r = await execute(
-    `INSERT INTO documents (client_id, request_id, uploaded_by, category, period, file_path, file_name, mime_type, size_bytes, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'new')`,
-    [d.clientId, d.requestId, d.userId, d.category, d.period, d.path, d.name, d.mime, d.size],
+    `INSERT INTO documents (client_id, request_id, folder_id, uploaded_by, category, period, file_path, file_name, mime_type, size_bytes, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new')`,
+    [d.clientId, d.requestId, d.folderId ?? null, d.userId, d.category, d.period, d.path, d.name, d.mime, d.size],
     db,
   );
   return r.insertId;
