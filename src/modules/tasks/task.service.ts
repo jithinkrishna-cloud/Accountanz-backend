@@ -220,6 +220,43 @@ export async function createTaskForClient(actor: AuthUser, client: { clientId: n
   return { id, title: input.title, period, due_date: input.due_date };
 }
 
+/**
+ * The company owner changes a task someone at the company created. Only while it's not started: once the team is
+ * working on it, changes go through a message instead. Team-created tasks are never editable from the portal.
+ */
+async function lockOwnTask(client: { clientId: number; role: "owner" | "member" }, id: number, conn: PoolConnection) {
+  if (client.role !== "owner") throw AppError.forbidden("Only the company owner can change tasks");
+  const task = await repo.lockClientCreatedTask(client.clientId, id, conn);
+  if (!task) throw AppError.notFound("Task");
+  if (task.status !== "todo") throw AppError.conflict("Your team has already started this task, so it can't be changed. Message them instead.");
+  return task;
+}
+
+export async function updateTaskForClient(actor: AuthUser, client: { clientId: number; role: "owner" | "member" }, id: number, input: ClientTaskInput) {
+  await withTransaction(async (conn) => {
+    const task = await lockOwnTask(client, id, conn);
+    const period = input.due_date.slice(0, 7);
+    if (period !== task.period) await assertPeriodOpen(client.clientId, period, conn);
+    const texts = input.checklist.length ? input.checklist : [input.title];
+    await repo.updateTaskFields(
+      id,
+      { title: input.title, description: input.description, due_date: input.due_date, period, checklist: mergeChecklist(task.checklist, texts) },
+      conn,
+    );
+    await recordAudit(actor, { action: "Task updated", entityType: "Task", entityId: id, clientId: client.clientId, details: `${input.title} · edited by client owner` }, conn);
+  });
+  return { id };
+}
+
+export async function deleteTaskForClient(actor: AuthUser, client: { clientId: number; role: "owner" | "member" }, id: number) {
+  await withTransaction(async (conn) => {
+    const task = await lockOwnTask(client, id, conn);
+    if ((await repo.countWorkLogs(id, conn)) > 0) throw AppError.conflict("Time has already been logged on this task, so it can't be deleted. Message your team instead.");
+    await repo.deleteTask(id, conn);
+    await recordAudit(actor, { action: "Task deleted", entityType: "Task", entityId: id, clientId: client.clientId, details: `${task.title} (${task.period}) · deleted by client owner` }, conn);
+  });
+}
+
 /** Keeps ticks on checklist points whose text is unchanged. */
 function mergeChecklist(current: ChecklistItem[], texts: string[]): ChecklistItem[] {
   return texts.map((text) => ({ text, done: current.find((c) => c.text === text)?.done ?? false }));

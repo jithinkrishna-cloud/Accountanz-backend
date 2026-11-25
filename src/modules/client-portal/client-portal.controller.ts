@@ -75,7 +75,13 @@ export async function moveDocument(req: Request, res: Response) {
   res.status(204).end();
 }
 
-export const createTask =async (req: Request, res: Response) => void res.status(201).json(await taskService.createTaskForClient(req.user!, ctx(res), req.body));
+export const createTask = async (req: Request, res: Response) => void res.status(201).json(await taskService.createTaskForClient(req.user!, ctx(res), req.body));
+/** Owner edits / deletes a task the company created, while it's not started. */
+export const updateTask = async (req: Request, res: Response) => void res.json(await taskService.updateTaskForClient(req.user!, ctx(res), idOf(res), req.body));
+export async function deleteTask(req: Request, res: Response) {
+  await taskService.deleteTaskForClient(req.user!, ctx(res), idOf(res));
+  res.status(204).end();
+}
 export const settings = async (_req: Request, res: Response) => void res.json(await service.getSettings(ctx(res)));
 
 export async function upload(req: Request, res: Response) {

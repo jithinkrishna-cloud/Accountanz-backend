@@ -11,6 +11,10 @@ const m = vi.hoisted(() => ({
   isPeriodClosed: vi.fn(),
   recordAudit: vi.fn(),
   notifyTaskAssigned: vi.fn(),
+  lockClientCreatedTask: vi.fn(),
+  countWorkLogs: vi.fn(),
+  deleteTask: vi.fn(),
+  updateTaskFields: vi.fn(),
 }));
 
 vi.mock("../../database/connection.js", () => ({ withTransaction: (fn: (c: unknown) => unknown) => fn({}) }));
@@ -30,6 +34,10 @@ vi.mock("./task.repository.js", () => ({
   insertManualTask: m.insertManualTask,
   findEngagement: m.findEngagement,
   findActiveUser: m.findActiveUser,
+  lockClientCreatedTask: m.lockClientCreatedTask,
+  countWorkLogs: m.countWorkLogs,
+  deleteTask: m.deleteTask,
+  updateTaskFields: m.updateTaskFields,
   listClientOptions: vi.fn().mockResolvedValue([]),
 }));
 
@@ -85,5 +93,34 @@ describe("staff create tasks", () => {
     m.activeTeamRoles.mockResolvedValue([]);
     const bookkeeper = { id: 10, role: "bookkeeper" } as unknown as AuthUser;
     await expect(service.getTaskOptions(bookkeeper, 3)).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+});
+
+describe("client owner edits and deletes their own tasks", () => {
+  const ownerCtx = { clientId: 3, role: "owner" as const };
+  const own = { id: 77, title: "Old", status: "todo", period: "2030-03", checklist: [{ text: "Old", done: false }] };
+
+  it("edits a task the company created while it's not started", async () => {
+    m.lockClientCreatedTask.mockResolvedValueOnce(own);
+    await service.updateTaskForClient(owner, ownerCtx, 77, { title: "New", description: "d", due_date: "2030-03-20", checklist: ["A"] });
+    expect(m.updateTaskFields).toHaveBeenCalledWith(77, expect.objectContaining({ title: "New", due_date: "2030-03-20", checklist: [{ text: "A", done: false }] }), expect.anything());
+  });
+
+  it("can't touch team tasks, started tasks, or anything as a member", async () => {
+    m.lockClientCreatedTask.mockResolvedValueOnce(null); // a team-created task isn't found
+    await expect(service.deleteTaskForClient(owner, ownerCtx, 77)).rejects.toMatchObject({ code: "NOT_FOUND" });
+    m.lockClientCreatedTask.mockResolvedValueOnce({ ...own, status: "in_progress" });
+    await expect(service.deleteTaskForClient(owner, ownerCtx, 77)).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(service.deleteTaskForClient(owner, { clientId: 3, role: "member" }, 77)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(m.deleteTask).not.toHaveBeenCalled();
+  });
+
+  it("deletes only when no time has been logged", async () => {
+    m.lockClientCreatedTask.mockResolvedValue(own);
+    m.countWorkLogs.mockResolvedValueOnce(2);
+    await expect(service.deleteTaskForClient(owner, ownerCtx, 77)).rejects.toMatchObject({ code: "CONFLICT" });
+    m.countWorkLogs.mockResolvedValueOnce(0);
+    await service.deleteTaskForClient(owner, ownerCtx, 77);
+    expect(m.deleteTask).toHaveBeenCalledWith(77, expect.anything());
   });
 });

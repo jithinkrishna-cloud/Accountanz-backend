@@ -192,8 +192,9 @@ export const fulfilRequest = (id: number, db: PoolConnection) => execute(`UPDATE
 
 // ── Tasks & reports ──
 export const visibleTasks = (clientId: number, period: string) =>
-  query<{ id: number; title: string; description: string | null; status: string; due_date: string | null; checklist: { text: string; done: boolean }[]; assignee_id: number | null; handled_by: string | null; reviewer_id: number | null; checked_by: string | null }>(
-    `SELECT t.id, t.title, t.description, t.status, t.due_date, t.checklist, t.assignee_id, a.full_name AS handled_by, t.reviewer_id, r.full_name AS checked_by
+  query<{ id: number; title: string; description: string | null; status: string; due_date: string | null; checklist: { text: string; done: boolean }[]; assignee_id: number | null; handled_by: string | null; reviewer_id: number | null; checked_by: string | null; created_by_client: 0 | 1 }>(
+    `SELECT t.id, t.title, t.description, t.status, t.due_date, t.checklist, t.assignee_id, a.full_name AS handled_by, t.reviewer_id, r.full_name AS checked_by,
+            EXISTS (SELECT 1 FROM client_users cu WHERE cu.user_id = t.created_by AND cu.client_id = t.client_id) AS created_by_client
        FROM tasks t LEFT JOIN users a ON a.id = t.assignee_id LEFT JOIN users r ON r.id = t.reviewer_id
       WHERE t.client_id = ? AND t.period = ? AND t.client_visible = 1 ORDER BY t.due_date IS NULL, t.due_date, t.id`,
     [clientId, period],

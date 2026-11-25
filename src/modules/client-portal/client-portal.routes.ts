@@ -53,6 +53,8 @@ clientPortalRoutes.post("/requests/:id/attach", validate({ params: idParam, body
 clientPortalRoutes.get("/requests", c.requests);
 clientPortalRoutes.get("/tasks", validate({ query: tasksQuerySchema }), c.tasks);
 clientPortalRoutes.post("/tasks", validate({ body: clientTaskSchema }), c.createTask);
+clientPortalRoutes.patch("/tasks/:id", validate({ params: idParam, body: clientTaskSchema }), c.updateTask);
+clientPortalRoutes.delete("/tasks/:id", validate({ params: idParam }), c.deleteTask);
 clientPortalRoutes.get("/reports", c.reports);
 clientPortalRoutes.get("/reports/:id/file", validate({ params: idParam }), c.downloadReport);
 clientPortalRoutes.get("/approvals", c.approvals);

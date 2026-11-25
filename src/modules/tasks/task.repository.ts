@@ -143,6 +143,27 @@ export interface TaskFieldChanges {
   client_visible?: boolean;
 }
 
+// ── Client-created tasks (Client Portal) ──
+
+/** A task of this client that someone at the company created (not the team), locked for a change. */
+export async function lockClientCreatedTask(clientId: number, id: number, conn: PoolConnection) {
+  const row = await queryOne<{ id: number; title: string; status: TaskStatus; period: string; checklist: ChecklistItem[] | string }>(
+    `SELECT t.id, t.title, t.status, t.period, t.checklist FROM tasks t
+      WHERE t.id = ? AND t.client_id = ?
+        AND EXISTS (SELECT 1 FROM client_users cu WHERE cu.user_id = t.created_by AND cu.client_id = t.client_id)
+      FOR UPDATE`,
+    [id, clientId],
+    conn,
+  );
+  if (!row) return null;
+  return { ...row, checklist: typeof row.checklist === "string" ? (JSON.parse(row.checklist) as ChecklistItem[]) : row.checklist };
+}
+
+export const countWorkLogs = (id: number, conn: PoolConnection) =>
+  queryOne<{ n: number }>(`SELECT COUNT(*) AS n FROM work_logs WHERE task_id = ?`, [id], conn).then((r) => Number(r?.n ?? 0));
+
+export const deleteTask = (id: number, conn: PoolConnection) => execute(`DELETE FROM tasks WHERE id = ?`, [id], conn);
+
 export async function updateTaskFields(id: number, changes: TaskFieldChanges, conn: PoolConnection) {
   const sets: string[] = [];
   const params: Param[] = [];
