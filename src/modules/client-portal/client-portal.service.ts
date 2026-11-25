@@ -72,7 +72,18 @@ export async function getDocuments(ctx: ClientContext) {
   const [docs, shares] = await Promise.all([repo.listDocuments(ctx.clientId), listDocumentShares(ctx.clientId)]);
   return docs.map((d) => ({ ...d, shared_with: shares.filter((s) => s.document_id === d.id).map(({ user_id, full_name }) => ({ user_id, full_name })) }));
 }
-export const getRequests = (ctx: ClientContext) => repo.listRequests(ctx.clientId);
+/** Requests with the task each belongs to (if the client can see it) and the files sent for it. */
+export async function getRequests(ctx: ClientContext) {
+  const [requests, tasks, files] = await Promise.all([repo.listRequests(ctx.clientId), repo.requestTasks(ctx.clientId), repo.requestFiles(ctx.clientId)]);
+  return requests.map((r) => {
+    const t = tasks.find((x) => x.request_id === r.id);
+    return {
+      ...r,
+      task: t ? { id: t.task_id, title: t.title, status: t.status, period: t.period } : null,
+      documents: files.filter((f) => f.request_id === r.id).map(({ id, file_name, created_at }) => ({ id, file_name, created_at })),
+    };
+  });
+}
 export const getReports = (ctx: ClientContext) => repo.listReports(ctx.clientId);
 export const getApprovals = (ctx: ClientContext) => repo.listApprovals(ctx.clientId);
 export const getThreads = (ctx: ClientContext) => repo.listThreads(ctx.clientId);

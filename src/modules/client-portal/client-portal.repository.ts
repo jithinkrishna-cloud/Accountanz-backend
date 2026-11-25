@@ -141,6 +141,23 @@ export const listRequests = (clientId: number) =>
     [clientId],
   );
 
+/** The task each request belongs to (only client-visible tasks), keyed by request id. */
+export const requestTasks = (clientId: number) =>
+  query<{ request_id: number; task_id: number; title: string; status: string; period: string }>(
+    `SELECT r.id AS request_id, t.id AS task_id, t.title, t.status, t.period
+       FROM document_requests r JOIN tasks t ON t.id = r.task_id
+      WHERE r.client_id = ? AND t.client_visible = 1`,
+    [clientId],
+  );
+
+/** Files sent for this client's requests, oldest first. */
+export const requestFiles = (clientId: number) =>
+  query<{ request_id: number; id: number; file_name: string; created_at: string }>(
+    `SELECT d.request_id, d.id, d.file_name, d.created_at FROM documents d
+      WHERE d.client_id = ? AND d.request_id IS NOT NULL ORDER BY d.created_at, d.id`,
+    [clientId],
+  );
+
 export const lockOpenRequest = (clientId: number, id: number, db: PoolConnection) =>
   queryOne<{ id: number; description: string; requested_by: number | null; period: string | null }>(
     `SELECT id, description, requested_by, period FROM document_requests WHERE id = ? AND client_id = ? AND status = 'open' FOR UPDATE`,

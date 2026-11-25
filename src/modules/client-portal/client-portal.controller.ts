@@ -15,9 +15,14 @@ import { AppError } from "../../utils/app-error.js";
 const ctx = (res: Response) => res.locals.client as ClientContext;
 const idOf = (res: Response) => (res.locals.params as IdParam).id;
 
-async function sendFile(res: Response, { file, name }: { file: StoredFile; name: string }) {
+/** Types a browser can show safely in a tab ("View"); everything else (and SVG, which can carry script) downloads. */
+const VIEWABLE = /^(application\/pdf|image\/(png|jpe?g|gif|webp))$/i;
+
+async function sendFile(res: Response, { file, name }: { file: StoredFile; name: string }, inline = false) {
   res.setHeader("Cache-Control", "private, no-store");
-  res.attachment(name);
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  if (inline && VIEWABLE.test(file.contentType)) res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(name)}`);
+  else res.attachment(name);
   res.type(file.contentType);
   if (Number.isFinite(file.size)) res.setHeader("Content-Length", String(file.size));
   await pipeline(file.stream, res);
@@ -76,7 +81,8 @@ export const settings = async (_req: Request, res: Response) => void res.json(aw
 export async function upload(req: Request, res: Response) {
   res.status(201).json(await service.uploadDocument(req.user!, ctx(res), res.locals.body as UploadMeta, req.file!));
 }
-export const downloadDocument = async (_req: Request, res: Response) => sendFile(res, await service.openDocument(ctx(res), idOf(res)));
+/** `?view=1` opens PDFs and images in the browser tab instead of downloading. */
+export const downloadDocument = async (req: Request, res: Response) => sendFile(res, await service.openDocument(ctx(res), idOf(res)), req.query.view === "1");
 export const downloadReport = async (_req: Request, res: Response) => sendFile(res, await service.openReport(ctx(res), idOf(res)));
 
 export async function decideApproval(req: Request, res: Response) {
