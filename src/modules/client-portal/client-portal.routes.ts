@@ -16,7 +16,7 @@ import { approvalDecisionSchema, clientTaskSchema, meetingRequestSchema, newThre
 import { activity as jlActivity, catalog as jlCatalog, team as jlTeam, setModule as jlSetModule } from "./journl-client-permission.controller.js";
 import { modulePermissionBody, modulePermissionParams } from "../journl-permissions/permission.validation.js";
 import { bizpoleOwnerRoutes } from "../integrations/bizpole/bizpole.routes.js";
-import { createFolderSchema, moveDocumentSchema, renameFolderSchema } from "../document-folders/document-folder.validation.js";
+import { attachDocumentSchema, createFolderSchema, moveDocumentSchema, renameFolderSchema, shareFolderSchema } from "../document-folders/document-folder.validation.js";
 
 /** Resolves the signed-in user's company once per request; every handler reads only that company. */
 const withClient: RequestHandler = async (req, res, next) => {
@@ -47,6 +47,9 @@ clientPortalRoutes.get("/folders", c.folders);
 clientPortalRoutes.post("/folders", validate({ body: createFolderSchema }), c.createFolder);
 clientPortalRoutes.patch("/folders/:id", validate({ params: idParam, body: renameFolderSchema }), c.renameFolder);
 clientPortalRoutes.delete("/folders/:id", validate({ params: idParam }), c.deleteFolder);
+clientPortalRoutes.put("/folders/:id/share", validate({ params: idParam, body: shareFolderSchema }), c.shareFolder);
+clientPortalRoutes.put("/documents/:id/share", validate({ params: idParam, body: shareFolderSchema }), c.shareDocument);
+clientPortalRoutes.post("/requests/:id/attach", validate({ params: idParam, body: attachDocumentSchema }), c.attachToRequest);
 clientPortalRoutes.get("/requests", c.requests);
 clientPortalRoutes.get("/tasks", validate({ query: tasksQuerySchema }), c.tasks);
 clientPortalRoutes.post("/tasks", validate({ body: clientTaskSchema }), c.createTask);

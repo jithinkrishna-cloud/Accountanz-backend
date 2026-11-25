@@ -59,6 +59,12 @@ export async function deleteFolder(req: Request, res: Response) {
   await folderService.deleteFolder(req.user!, ctx(res).clientId, idOf(res));
   res.status(204).end();
 }
+export const shareDocument = async (req: Request, res: Response) =>
+  void res.json(await folderService.shareDocument(req.user!, ctx(res), idOf(res), (req.body as { user_ids: number[] }).user_ids));
+export const shareFolder = async (req: Request, res: Response) =>
+  void res.json(await folderService.shareFolder(req.user!, ctx(res), idOf(res), (req.body as { user_ids: number[] }).user_ids));
+export const attachToRequest = async (req: Request, res: Response) =>
+  void res.json(await service.attachExistingDocument(req.user!, ctx(res), idOf(res), (req.body as { document_id: number }).document_id));
 export async function moveDocument(req: Request, res: Response) {
   await folderService.moveDocument(req.user!, ctx(res).clientId, idOf(res), req.body);
   res.status(204).end();

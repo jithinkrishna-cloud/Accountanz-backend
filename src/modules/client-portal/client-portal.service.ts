@@ -9,7 +9,7 @@ import { notifyApprovalDecided, notifyClientMessage, notifyDocumentReceived, not
 import { setClientSoftware } from "../integrations/integration.repository.js";
 import { insertEngagement, updateEngagement as updateEngagementRow } from "../engagements/engagement.repository.js";
 import { acceptByClient } from "../onboarding/onboarding.service.js";
-import { assertUploadFolder } from "../document-folders/document-folder.service.js";
+import { assertUploadFolder, listDocumentShares } from "../document-folders/document-folder.service.js";
 import { clientProposal } from "../onboarding/onboarding.repository.js";
 import { syncCaseWithEngagement } from "../onboarding/onboarding.sync.js";
 import { pendingChangeForClient } from "../package-changes/package-change.repository.js";
@@ -67,7 +67,11 @@ export async function disconnectJournl(actor: AuthUser, ctx: ClientContext) {
   });
   return repo.software(ctx.clientId);
 }
-export const getDocuments = (ctx: ClientContext) => repo.listDocuments(ctx.clientId);
+/** The company's files, each with the accountants it is shared with directly. */
+export async function getDocuments(ctx: ClientContext) {
+  const [docs, shares] = await Promise.all([repo.listDocuments(ctx.clientId), listDocumentShares(ctx.clientId)]);
+  return docs.map((d) => ({ ...d, shared_with: shares.filter((s) => s.document_id === d.id).map(({ user_id, full_name }) => ({ user_id, full_name })) }));
+}
 export const getRequests = (ctx: ClientContext) => repo.listRequests(ctx.clientId);
 export const getReports = (ctx: ClientContext) => repo.listReports(ctx.clientId);
 export const getApprovals = (ctx: ClientContext) => repo.listApprovals(ctx.clientId);
@@ -136,6 +140,34 @@ export async function uploadDocument(actor: AuthUser, ctx: ClientContext, meta: 
     await deleteFile(key);
     throw err;
   }
+}
+
+/**
+ * Answers a document request with a file already in the Document Centre (no second upload). The file is linked to
+ * the request, so the team can open it even if it sits in a private folder; the request is marked fulfilled. A file
+ * already sent for another request is linked as a copy of the same stored file (client documents are never deleted).
+ */
+export async function attachExistingDocument(actor: AuthUser, ctx: ClientContext, requestId: number, documentId: number) {
+  const result = await withTransaction(async (conn) => {
+    const request = await repo.lockOpenRequest(ctx.clientId, requestId, conn);
+    if (!request) throw new AppError("CONFLICT", "That request is no longer open");
+    const doc = await repo.findDocumentForRequest(ctx.clientId, documentId, conn);
+    if (!doc) throw AppError.notFound("Document");
+    let id = doc.id;
+    if (doc.request_id === null) {
+      await repo.linkDocumentToRequest(doc.id, request.id, conn);
+    } else {
+      id = await repo.insertDocument(
+        { clientId: ctx.clientId, requestId: request.id, folderId: doc.folder_id, userId: actor.id, category: doc.category, period: doc.period ?? request.period, path: doc.file_path, name: doc.file_name, mime: doc.mime_type ?? "application/octet-stream", size: doc.size_bytes ?? 0 },
+        conn,
+      );
+    }
+    await repo.fulfilRequest(request.id, conn);
+    await recordAudit(actor, { action: "Document sent for request", entityType: "Document", entityId: id, clientId: ctx.clientId, details: `${doc.file_name} for "${request.description}" (from Document Centre)` }, conn);
+    return { id, request, fileName: doc.file_name };
+  });
+  void notifyDocumentReceived(result.request.requested_by, { clientName: ctx.clientName, fileName: result.fileName, request: result.request.description, documentId: result.id });
+  return { id: result.id, fulfilled_request: result.request.id };
 }
 
 export async function openDocument(ctx: ClientContext, id: number) {

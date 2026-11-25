@@ -121,8 +121,9 @@ export async function disconnectJournlConnection(id: number, conn: PoolConnectio
 
 // ── Documents & requests ──
 export const listDocuments = (clientId: number) =>
-  query<{ id: number; file_name: string; category: string; period: string | null; status: string; review_note: string | null; created_at: string; uploaded_by: string | null; request_id: number | null; folder_id: number | null; size_bytes: number | null }>(
-    `SELECT d.id, d.file_name, d.category, d.period, d.status, d.review_note, d.created_at, u.full_name AS uploaded_by, d.request_id, d.folder_id, d.size_bytes
+  query<{ id: number; file_name: string; category: string; period: string | null; status: string; review_note: string | null; created_at: string; uploaded_by: string | null; request_id: number | null; folder_id: number | null; size_bytes: number | null; from_client: 0 | 1 }>(
+    `SELECT d.id, d.file_name, d.category, d.period, d.status, d.review_note, d.created_at, u.full_name AS uploaded_by, d.request_id, d.folder_id, d.size_bytes,
+            COALESCE(u.portal_role IN ('client_owner', 'client_member'), 0) AS from_client
        FROM documents d LEFT JOIN users u ON u.id = d.uploaded_by WHERE d.client_id = ? ORDER BY d.created_at DESC, d.id DESC`,
     [clientId],
   );
@@ -156,6 +157,17 @@ export async function insertDocument(d: { clientId: number; requestId: number | 
   );
   return r.insertId;
 }
+
+/** A document of this client with everything needed to send it for a request. */
+export const findDocumentForRequest = (clientId: number, id: number, db: Db) =>
+  queryOne<{ id: number; file_name: string; file_path: string; mime_type: string | null; size_bytes: number | null; category: string; period: string | null; folder_id: number | null; request_id: number | null }>(
+    `SELECT id, file_name, file_path, mime_type, size_bytes, category, period, folder_id, request_id FROM documents WHERE id = ? AND client_id = ?`,
+    [id, clientId],
+    db,
+  );
+
+export const linkDocumentToRequest = (id: number, requestId: number, db: PoolConnection) =>
+  execute(`UPDATE documents SET request_id = ? WHERE id = ?`, [requestId, id], db);
 
 export const fulfilRequest = (id: number, db: PoolConnection) => execute(`UPDATE document_requests SET status = 'fulfilled' WHERE id = ?`, [id], db);
 

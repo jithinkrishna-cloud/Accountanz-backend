@@ -11,11 +11,24 @@ const m = vi.hoisted(() => ({
   findClientDocument: vi.fn(),
   moveDocument: vi.fn(),
   recordAudit: vi.fn(),
+  documentShareIds: vi.fn(),
+  sharedFolderIds: vi.fn(),
+  folderShareIds: vi.fn(),
+  addShares: vi.fn(),
+  removeShares: vi.fn(),
+  addDocumentShares: vi.fn(),
+  removeDocumentShares: vi.fn(),
+  listDocumentShares: vi.fn(),
+  listShares: vi.fn(),
+  activeTeamRoles: vi.fn(),
+  notifyShared: vi.fn(),
 }));
 
 vi.mock("../../database/connection.js", () => ({ withTransaction: (fn: (c: unknown) => unknown) => fn({}) }));
 vi.mock("../audit/audit.service.js", () => ({ recordAudit: m.recordAudit }));
-vi.mock("./document-folder.repository.js", () => ({ ...m, listFolders: vi.fn(), listFoldersForClients: vi.fn() }));
+vi.mock("../notifications/notification.service.js", () => ({ notifyShared: m.notifyShared }));
+vi.mock("../access/client-access.js", () => ({ activeTeamRoles: m.activeTeamRoles, isAdmin: (u: AuthUser) => u.role === "super_admin" || u.role === "ops_admin" }));
+vi.mock("./document-folder.repository.js", () => ({ ...m, listFolders: vi.fn().mockResolvedValue([]), listFoldersForClients: vi.fn(), SHARED_FOLDERS_SQL: "SELECT 1" }));
 
 const service = await import("./document-folder.service.js");
 
@@ -84,5 +97,41 @@ describe("moving and uploading", () => {
     m.findFolder.mockResolvedValueOnce(null);
     await expect(service.assertUploadFolder(3, 99)).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(service.assertUploadFolder(3, undefined)).resolves.toBeUndefined();
+  });
+});
+
+describe("privacy: which client files an accountant can see", () => {
+  const bookkeeper = { id: 7, role: "bookkeeper" } as unknown as AuthUser;
+  const admin = { id: 1, role: "super_admin" } as unknown as AuthUser;
+  const clientFile = { id: 50, folder_id: 2, request_id: null, from_client: 1 as const };
+
+  it("a client's file is private until shared", async () => {
+    m.documentShareIds.mockResolvedValue([]);
+    m.sharedFolderIds.mockResolvedValue([]);
+    expect(await service.canSeeDocument(bookkeeper, clientFile)).toBe(false);
+    expect(await service.canSeeDocument(bookkeeper, { ...clientFile, folder_id: null })).toBe(false);
+  });
+
+  it("shared directly, through a folder, sent for a request, uploaded by the team, or admin: visible", async () => {
+    m.documentShareIds.mockResolvedValueOnce([7]);
+    expect(await service.canSeeDocument(bookkeeper, clientFile)).toBe(true);
+    m.documentShareIds.mockResolvedValueOnce([]);
+    m.sharedFolderIds.mockResolvedValueOnce([1, 2]);
+    expect(await service.canSeeDocument(bookkeeper, clientFile)).toBe(true);
+    expect(await service.canSeeDocument(bookkeeper, { ...clientFile, request_id: 9 })).toBe(true);
+    expect(await service.canSeeDocument(bookkeeper, { ...clientFile, from_client: 0 })).toBe(true);
+    expect(await service.canSeeDocument(admin, clientFile)).toBe(true);
+  });
+
+  it("can only share with people on the company's team, and emails only people newly added", async () => {
+    m.findClientDocument.mockResolvedValue({ id: 50, file_name: "a.pdf", folder_id: null });
+    m.listDocumentShares.mockResolvedValue([]);
+    m.activeTeamRoles.mockResolvedValueOnce([]);
+    await expect(service.shareDocument(owner, { clientId: 3, clientName: "ABC" }, 50, [99])).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    m.activeTeamRoles.mockResolvedValue(["bookkeeper"]);
+    m.documentShareIds.mockResolvedValueOnce([8]);
+    await service.shareDocument(owner, { clientId: 3, clientName: "ABC" }, 50, [7, 8]);
+    expect(m.addDocumentShares).toHaveBeenCalledWith(50, [7], 21, expect.anything());
+    expect(m.notifyShared).toHaveBeenCalledWith([7], expect.objectContaining({ kind: "file", name: "a.pdf" }));
   });
 });

@@ -1,4 +1,4 @@
-﻿import { approvalDecidedEmail, approvalRequestedEmail, clientMessageEmail, companyRegisteredEmail, documentRequestedEmail, meetingCancelledEmail, meetingRequestDeclinedEmail, meetingRequestedEmail, meetingScheduledEmail, mentionedEmail, proposalAcceptedEmail, proposalSentEmail, reportPublishedEmail, teamMessageEmail, documentReceivedEmail, invoiceIssuedEmail, taskAssignedEmail, taskReviewedEmail, taskSubmittedEmail, correctionDecidedEmail, correctionOutcomeEmail, correctionSubmittedEmail } from "../../emails/templates.js";
+﻿import { approvalDecidedEmail, approvalRequestedEmail, clientMessageEmail, companyRegisteredEmail, documentRequestedEmail, meetingCancelledEmail, meetingRequestDeclinedEmail, meetingRequestedEmail, meetingScheduledEmail, mentionedEmail, proposalAcceptedEmail, proposalSentEmail, reportPublishedEmail, teamMessageEmail, documentReceivedEmail, sharedWithYouEmail, invoiceIssuedEmail, taskAssignedEmail, taskReviewedEmail, taskSubmittedEmail, correctionDecidedEmail, correctionOutcomeEmail, correctionSubmittedEmail } from "../../emails/templates.js";
 import { logger } from "../../utils/logger.js";
 import { sendMail } from "../../utils/mailer.js";
 import { humanize } from "../../utils/format.js";
@@ -89,6 +89,17 @@ export const notifyDocumentReceived = (requestedBy: number | null, d: { clientNa
     if (!to) return;
     const content = documentReceivedEmail({ recipientName: to.full_name, clientName: d.clientName, fileName: d.fileName, request: d.request });
     await sendMail({ to: to.email, ...content, idempotencyKey: `document-received/${d.documentId}` });
+  });
+
+/** A client shared a Document Centre folder or file: tell each accountant newly given access. */
+export const notifyShared = (userIds: number[], d: { kind: "folder" | "file"; clientName: string; name: string; sharedBy: string; key: string }) =>
+  safely("shared-with-you", async () => {
+    for (const userId of userIds) {
+      const to = await repo.findActiveContact(userId);
+      if (!to) continue;
+      const content = sharedWithYouEmail({ recipientName: to.full_name, clientName: d.clientName, kind: d.kind, name: d.name, sharedBy: d.sharedBy });
+      await sendMail({ to: to.email, ...content, idempotencyKey: `shared/${d.key}/${userId}/${Date.now()}` });
+    }
   });
 
 /** Client decided an approval: tell the person who requested it. */

@@ -185,6 +185,24 @@ export function documentReceivedEmail(d: { recipientName: string; clientName: st
   };
 }
 
+/** A client shared a Document Centre folder or a single file with an accountant. */
+export function sharedWithYouEmail(d: { recipientName: string; clientName: string; kind: "folder" | "file"; name: string; sharedBy: string }): EmailContent {
+  const what = d.kind === "folder" ? "a folder" : "a file";
+  return {
+    subject: `${d.clientName} shared ${what} with you: ${d.name}`,
+    html: layout({
+      title: `A client shared ${what} with you`,
+      preheader: `${d.sharedBy} shared "${d.name}".`,
+      body:
+        paragraph(`Hi ${d.recipientName},`) +
+        paragraph(`${d.sharedBy} at ${d.clientName} shared ${what} with you. ${d.kind === "folder" ? "You can now open it and every file and subfolder in it." : "You can now open it."}`) +
+        facts([["Client", d.clientName], [d.kind === "folder" ? "Folder" : "File", d.name], ["Shared by", d.sharedBy]]) +
+        button("Open Document Centre", appUrl("/team/documents")),
+    }),
+    text: plainText(`Hi ${d.recipientName},`, `${d.sharedBy} at ${d.clientName} shared the ${d.kind} "${d.name}" with you.`, `Open Document Centre: ${appUrl("/team/documents")}`),
+  };
+}
+
 export function approvalDecidedEmail(d: { recipientName: string; clientName: string; subject: string; decision: "approved" | "rejected"; comment: string | null; decidedBy: string }): EmailContent {
   const approved = d.decision === "approved";
   return {

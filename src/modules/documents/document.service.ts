@@ -6,7 +6,7 @@ import { clientScope, requireClientAccess } from "../access/client-access.js";
 import { recordAudit } from "../audit/audit.service.js";
 import { notifyDocumentRequested } from "../notifications/notification.service.js";
 import { listFoldersForClients } from "../document-folders/document-folder.repository.js";
-import { folderPaths } from "../document-folders/document-folder.service.js";
+import { canSeeDocument, documentVisibility, folderPaths } from "../document-folders/document-folder.service.js";
 import * as repo from "./document.repository.js";
 import type { DocumentRow, DocumentStatus } from "./document.types.js";
 import type { CreateRequestInput, DocumentListQuery, RequestListQuery, StaffUploadInput } from "./document.validation.js";
@@ -21,6 +21,8 @@ async function requireDocument(actor: AuthUser, id: number) {
   const doc = await repo.findDocument(id);
   if (!doc) throw AppError.notFound("Document");
   await requireClientAccess(actor, doc.client_id, "Document");
+  // A file in a client folder that isn't shared with this accountant: same answer as a missing one.
+  if (!(await canSeeDocument(actor, doc))) throw AppError.notFound("Document");
   return doc;
 }
 
@@ -31,7 +33,9 @@ async function assertTaskOnClient(taskId: number | null | undefined, clientId: n
 }
 
 export async function listDocuments(actor: AuthUser, q: DocumentListQuery) {
-  const page = await repo.listDocuments(q, clientScope(actor, "d.client_id"));
+  const scope = clientScope(actor, "d.client_id");
+  const visible = documentVisibility(actor, "d");
+  const page = await repo.listDocuments(q, { sql: `${scope.sql} AND ${visible.sql}`, params: [...scope.params, ...visible.params] });
   // The client's own folder ("Bank / 2026 / March") so staff can see where a file was filed.
   const clientIds = [...new Set(page.items.filter((d) => d.folder_id).map((d) => d.client_id))];
   const paths = folderPaths(await listFoldersForClients(clientIds));

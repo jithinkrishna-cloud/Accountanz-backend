@@ -12,7 +12,7 @@ export interface Scope {
 
 const DOC_SELECT = `
   SELECT d.id, d.client_id, COALESCE(c.trade_name, c.legal_name) AS client_name, d.category, d.period,
-         d.file_name, d.file_path, d.mime_type, d.status, d.request_id, d.task_id, d.folder_id,
+         d.file_name, d.file_path, d.mime_type, d.status, d.request_id, d.task_id, d.folder_id, d.uploaded_by AS uploaded_by_id,
          u.email AS uploaded_by_email, u.full_name AS uploaded_by_name,
          COALESCE(u.portal_role IN ('client_owner', 'client_member'), 0) AS from_client, d.created_at
     FROM documents d JOIN clients c ON c.id = d.client_id LEFT JOIN users u ON u.id = d.uploaded_by`;

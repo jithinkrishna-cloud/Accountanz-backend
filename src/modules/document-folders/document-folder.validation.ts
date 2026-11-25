@@ -16,6 +16,12 @@ export const createFolderSchema = z.object({
 
 export const renameFolderSchema = z.object({ name: folderName });
 
+/** The full list of people the folder should be shared with (empty = private again). */
+export const shareFolderSchema = z.object({ user_ids: z.array(z.coerce.number().int().positive()).max(50) });
+
+/** Answer a document request with a file already in the Document Centre. */
+export const attachDocumentSchema = z.object({ document_id: z.coerce.number().int().positive("Pick a file") });
+
 export const moveDocumentSchema = z.object({ folder_id: z.coerce.number().int().positive().nullable() });
 
 export type CreateFolderInput = z.infer<typeof createFolderSchema>;
