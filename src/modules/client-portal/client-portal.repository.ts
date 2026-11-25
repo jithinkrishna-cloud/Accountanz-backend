@@ -218,9 +218,18 @@ export const findReport = (clientId: number, id: number) =>
 
 // ── Approvals ──
 export const listApprovals = (clientId: number) =>
-  query<{ id: number; subject: string; description: string | null; status: string; requested_by: string | null; decided_by: string | null; decided_at: string | null; comment: string | null; created_at: string }>(
-    `SELECT a.id, a.subject, a.description, a.status, rq.full_name AS requested_by, dc.full_name AS decided_by, a.decided_at, a.comment, a.created_at
+  query<{
+    id: number; subject: string; description: string | null; status: string; requested_by: string | null; requested_by_role: string | null;
+    decided_by: string | null; decided_at: string | null; comment: string | null; created_at: string;
+    task_id: number | null; task_title: string | null; task_period: string | null; task_status: string | null;
+  }>(
+    `SELECT a.id, a.subject, a.description, a.status, rq.full_name AS requested_by,
+            COALESCE((SELECT x.team_role FROM assignments x WHERE x.user_id = a.requested_by AND x.client_id = a.client_id
+                       ORDER BY x.status = 'active' DESC, FIELD(x.team_role, 'cfo', 'finance_manager', 'reviewer', 'bookkeeper') LIMIT 1), rq.portal_role) AS requested_by_role,
+            dc.full_name AS decided_by, a.decided_at, a.comment, a.created_at,
+            t.id AS task_id, t.title AS task_title, t.period AS task_period, t.status AS task_status
        FROM client_approvals a LEFT JOIN users rq ON rq.id = a.requested_by LEFT JOIN users dc ON dc.id = a.decided_by
+       LEFT JOIN tasks t ON t.id = a.related_task_id AND t.client_visible = 1
       WHERE a.client_id = ? ORDER BY a.status = 'pending' DESC, a.created_at DESC`,
     [clientId],
   );
