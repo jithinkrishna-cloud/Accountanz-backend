@@ -132,8 +132,10 @@ export const findDocument = (clientId: number, id: number) =>
   queryOne<{ id: number; file_name: string; file_path: string }>(`SELECT id, file_name, file_path FROM documents WHERE id = ? AND client_id = ?`, [id, clientId]);
 
 export const listRequests = (clientId: number) =>
-  query<{ id: number; description: string; due_date: string | null; period: string | null; status: string; requested_by: string | null; requested_by_id: number | null; files: number }>(
+  query<{ id: number; description: string; due_date: string | null; period: string | null; status: string; requested_by: string | null; requested_by_id: number | null; requested_by_role: string | null; files: number }>(
     `SELECT r.id, r.description, r.due_date, r.period, r.status, u.full_name AS requested_by, r.requested_by AS requested_by_id,
+            COALESCE((SELECT a.team_role FROM assignments a WHERE a.user_id = r.requested_by AND a.client_id = r.client_id
+                       ORDER BY a.status = 'active' DESC, FIELD(a.team_role, 'cfo', 'finance_manager', 'reviewer', 'bookkeeper') LIMIT 1), u.portal_role) AS requested_by_role,
             (SELECT COUNT(*) FROM documents d WHERE d.request_id = r.id) AS files
        FROM document_requests r LEFT JOIN users u ON u.id = r.requested_by
       WHERE r.client_id = ? AND r.status <> 'cancelled'
