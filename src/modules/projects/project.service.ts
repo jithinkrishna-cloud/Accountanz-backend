@@ -42,7 +42,7 @@ async function requireRoomForClientSpace(clientId: number, conn: PoolConnection)
   if (!entitlement) throw AppError.conflict(NO_PACKAGE_MESSAGE);
   const limit = entitlement.workspaceLimit;
   if (limit !== null && (await repo.countActiveClientSpaces(clientId, conn)) >= limit) {
-    throw AppError.conflict(`The ${entitlement.packageName} package allows ${limit} client workspaces. Archive one or ask a Super admin for more room.`);
+    throw AppError.conflict(`The ${entitlement.packageName} package allows ${limit} client workspace${limit === 1 ? "" : "s"}. Archive one or ask a Super admin for more room.`);
   }
 }
 
