@@ -53,3 +53,8 @@ export async function submit(req: Request, res: Response) {
 export async function generate(req: Request, res: Response) {
   res.status(201).json(await service.generateTasks(req.user!, (req.body as GenerateTasksInput).period));
 }
+
+/** Admin task page sidebar: every client with tasks, with open and overdue counts. */
+export async function clients(_req: Request, res: Response) {
+  res.json({ items: await service.listTaskClients() });
+}

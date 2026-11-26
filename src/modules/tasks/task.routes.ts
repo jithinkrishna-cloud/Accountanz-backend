@@ -17,6 +17,7 @@ export const taskRoutes = Router();
 
 taskRoutes.get("/", validate({ query: taskListQuerySchema }), controller.list);
 taskRoutes.get("/options", validate({ query: optionsQuerySchema }), controller.options);
+taskRoutes.get("/clients", controller.clients);
 taskRoutes.post("/", validate({ body: createTaskSchema }), controller.create);
 taskRoutes.post("/generate", validate({ body: generateTasksSchema }), controller.generate);
 taskRoutes.get("/:id", validate({ params: idParam }), controller.get);

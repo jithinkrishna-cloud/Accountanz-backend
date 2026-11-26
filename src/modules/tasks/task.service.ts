@@ -472,3 +472,6 @@ export async function generateTasks(actor: AuthUser, period: string): Promise<Ge
     return result;
   });
 }
+
+/** Every client with tasks, with open and overdue counts (admin task page sidebar). */
+export const listTaskClients = () => repo.taskClientSummary({});
