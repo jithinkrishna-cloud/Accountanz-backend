@@ -30,3 +30,7 @@ itemRoutes.delete("/:number/worklogs/:id", validate({ params: childParam }), c.d
 itemRoutes.post("/:number/attachments", validate({ params: itemParam }), attachment, c.addAttachment);
 itemRoutes.get("/:number/attachments/:id", validate({ params: childParam }), c.downloadAttachment);
 itemRoutes.delete("/:number/attachments/:id", validate({ params: childParam }), c.deleteAttachment);
+
+itemRoutes.get("/:number/watchers", validate({ params: itemParam }), c.watchers);
+itemRoutes.put("/:number/watchers/:id", validate({ params: childParam }), c.addWatcher);
+itemRoutes.delete("/:number/watchers/:id", validate({ params: childParam }), c.removeWatcher);

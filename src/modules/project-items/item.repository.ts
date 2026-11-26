@@ -255,3 +255,22 @@ export async function insertAttachment(itemId: number, a: { file_key: string; fi
 }
 
 export const deleteAttachment = (id: number, conn: PoolConnection) => execute(`DELETE FROM project_item_attachments WHERE id = ?`, [id], conn);
+
+// ── Watchers ──
+export interface WatcherRow {
+  user_id: number;
+  full_name: string;
+  email: string;
+}
+
+export const listWatchers = (itemId: number) =>
+  query<WatcherRow>(
+    `SELECT w.user_id, u.full_name, u.email FROM project_item_watchers w JOIN users u ON u.id = w.user_id
+      WHERE w.item_id = ? ORDER BY u.full_name`,
+    [itemId],
+  );
+
+export const addWatcher = (itemId: number, userId: number, addedBy: number) =>
+  execute(`INSERT IGNORE INTO project_item_watchers (item_id, user_id, added_by) VALUES (?, ?, ?)`, [itemId, userId, addedBy]);
+
+export const removeWatcher = (itemId: number, userId: number) => execute(`DELETE FROM project_item_watchers WHERE item_id = ? AND user_id = ?`, [itemId, userId]);

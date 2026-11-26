@@ -39,3 +39,7 @@ export async function downloadAttachment(_req: Request, res: Response) {
   if (Number.isFinite(file.size)) res.setHeader("Content-Length", String(file.size));
   await pipeline(file.stream, res);
 }
+
+export const watchers = async (_req: Request, res: Response) => void res.json({ items: await service.getWatchers(spaceOf(res), p(res).number) });
+export const addWatcher = async (req: Request, res: Response) => void res.json({ items: await service.addWatcher(req.user!, spaceOf(res), p(res).number, p(res).id!) });
+export const removeWatcher = async (req: Request, res: Response) => void res.json({ items: await service.removeWatcher(req.user!, spaceOf(res), p(res).number, p(res).id!) });

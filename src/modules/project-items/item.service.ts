@@ -321,3 +321,24 @@ export async function deleteAttachment(actor: AuthUser, space: SpaceContext, num
   await deleteFile(a.file_key);
   return repo.listAttachments(item.id);
 }
+
+// ── Watchers ──
+export async function getWatchers(space: SpaceContext, number: number) {
+  return repo.listWatchers((await requireItem(space, number)).id);
+}
+
+/** Any space member can watch an item, or add another member as a watcher. */
+export async function addWatcher(actor: AuthUser, space: SpaceContext, number: number, userId: number) {
+  const item = await requireItem(space, number);
+  if (!(await repo.memberName(space.id, userId))) throw AppError.notFound("Space member");
+  await repo.addWatcher(item.id, userId, actor.id);
+  return repo.listWatchers(item.id);
+}
+
+/** You can stop watching yourself; space Administrators can remove anyone. */
+export async function removeWatcher(actor: AuthUser, space: SpaceContext, number: number, userId: number) {
+  const item = await requireItem(space, number);
+  if (userId !== actor.id && space.role !== "admin") throw AppError.forbidden("Only space Administrators can remove other watchers");
+  await repo.removeWatcher(item.id, userId);
+  return repo.listWatchers(item.id);
+}
