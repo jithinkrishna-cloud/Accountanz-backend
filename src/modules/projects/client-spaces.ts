@@ -2,8 +2,12 @@ import type { PoolConnection } from "mysql2/promise";
 import type { AuthUser } from "../../types/auth.types.js";
 import { AppError } from "../../utils/app-error.js";
 import { recordAudit } from "../audit/audit.service.js";
-import { isPortalAdminRole } from "./entitlement.js";
+import { notifyWorkspaceSyncIssues } from "../notifications/notification.service.js";
+import { effectiveEntitlement, isPortalAdminRole } from "./entitlement.js";
 import * as repo from "./project.repository.js";
+import type { SyncIssueReason } from "./project.types.js";
+
+export type { SyncIssueReason };
 
 const MAX_KEY = 10;
 const KEY_ATTEMPTS = 20;
@@ -75,4 +79,66 @@ export async function archivePrimaryForClient(actor: AuthUser, clientId: number,
   if (!primary) return;
   await repo.setArchived(primary.id, true, conn);
   await recordAudit(actor, { action: "Workspace client space archived", entityType: "ProjectSpace", entityId: primary.id, clientId, details: "Client engagement ended" }, conn);
+}
+
+/**
+ * Makes the primary space's client_team members mirror the client's active team, within package rules.
+ * Idempotent; never touches manual members; removals deliberately bypass the "at least one Administrator" rule.
+ */
+export async function syncPrimaryMembers(actor: AuthUser, clientId: number, conn: PoolConnection) {
+  const result = { added: [] as number[], removed: [] as number[], issues: [] as { userId: number; reason: SyncIssueReason }[] };
+  const space = await repo.findPrimarySpace(clientId, conn);
+  if (!space) return result;
+
+  const [team, members, entitlement] = await Promise.all([repo.listClientTeam(clientId, conn), repo.listMembersWithSource(space.id, conn), effectiveEntitlement(clientId, conn)]);
+  const memberIds = new Set(members.map((x) => x.user_id));
+  const wanted = team.filter((t) => !isPortalAdminRole(t.portal_role));
+  const issueFor = new Map<number, SyncIssueReason>();
+  const eligible = new Set<number>(); // wanted people who may hold a client_team seat
+  const candidates: typeof wanted = []; // eligible people who are not members yet, in assignment order
+
+  for (const t of wanted) {
+    if (!entitlement) {
+      // No active package: existing members stay, nobody new is added.
+      if (memberIds.has(t.user_id)) eligible.add(t.user_id);
+      else issueFor.set(t.user_id, "no_active_package");
+    } else if (!entitlement.teamRoles.includes(t.portal_role)) {
+      issueFor.set(t.user_id, "role_not_included");
+    } else {
+      eligible.add(t.user_id);
+      if (!memberIds.has(t.user_id)) candidates.push(t);
+    }
+  }
+
+  // Removals first, so freed seats can be reused in this run.
+  const toRemove = members.filter((x) => x.source === "client_team" && !eligible.has(x.user_id));
+  for (const r of toRemove) {
+    await repo.removeMember(space.id, r.user_id, conn);
+    memberIds.delete(r.user_id);
+    result.removed.push(r.user_id);
+  }
+
+  const limit = entitlement?.staffPerWorkspace ?? null;
+  let seats = members.filter((x) => memberIds.has(x.user_id) && !isPortalAdminRole(x.portal_role)).length;
+  for (const c of candidates) {
+    if (limit !== null && seats >= limit) {
+      issueFor.set(c.user_id, "staff_limit");
+      continue;
+    }
+    await repo.addMember(space.id, c.user_id, "member", actor.id, conn, "client_team");
+    seats++;
+    result.added.push(c.user_id);
+  }
+
+  if (result.added.length && (await repo.countAdmins(space.id, conn)) === 0) await repo.setMemberRole(space.id, result.added[0], "admin", conn);
+
+  const opened: { userName: string; reason: SyncIssueReason }[] = [];
+  for (const [userId, reason] of issueFor) {
+    result.issues.push({ userId, reason });
+    if (await repo.upsertSyncIssue(space.id, userId, reason, conn)) opened.push({ userName: team.find((t) => t.user_id === userId)?.full_name ?? `User ${userId}`, reason });
+  }
+  await repo.resolveSyncIssues(space.id, [...issueFor.keys()], conn);
+
+  if (opened.length) void notifyWorkspaceSyncIssues(space.id, (await repo.clientDisplayName(clientId, conn)) ?? `Client ${clientId}`, opened);
+  return result;
 }

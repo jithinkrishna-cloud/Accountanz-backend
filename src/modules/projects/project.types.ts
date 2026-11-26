@@ -59,3 +59,6 @@ export interface MemberRow {
   role: SpaceRole;
   added_at: string;
 }
+
+export type SyncIssueReason = "staff_limit" | "role_not_included" | "no_active_package";
+export type MemberSource = "manual" | "client_team";

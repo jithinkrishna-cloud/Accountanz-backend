@@ -1,4 +1,4 @@
-﻿import { approvalDecidedEmail, approvalRequestedEmail, clientMessageEmail, companyRegisteredEmail, documentRequestedEmail, meetingCancelledEmail, meetingRequestDeclinedEmail, meetingRequestedEmail, meetingScheduledEmail, mentionedEmail, proposalAcceptedEmail, proposalSentEmail, reportPublishedEmail, teamMessageEmail, documentReceivedEmail, sharedWithYouEmail, invoiceIssuedEmail, taskAssignedEmail, taskReviewedEmail, taskSubmittedEmail, correctionDecidedEmail, correctionOutcomeEmail, correctionSubmittedEmail } from "../../emails/templates.js";
+﻿import { approvalDecidedEmail, approvalRequestedEmail, clientMessageEmail, companyRegisteredEmail, documentRequestedEmail, meetingCancelledEmail, meetingRequestDeclinedEmail, meetingRequestedEmail, meetingScheduledEmail, mentionedEmail, proposalAcceptedEmail, proposalSentEmail, reportPublishedEmail, teamMessageEmail, documentReceivedEmail, sharedWithYouEmail, invoiceIssuedEmail, taskAssignedEmail, taskReviewedEmail, taskSubmittedEmail, correctionDecidedEmail, correctionOutcomeEmail, correctionSubmittedEmail, workspaceSyncIssueEmail } from "../../emails/templates.js";
 import { logger } from "../../utils/logger.js";
 import { sendMail } from "../../utils/mailer.js";
 import { humanize } from "../../utils/format.js";
@@ -323,4 +323,22 @@ export const notifyCorrectionOutcome = (correctionId: number) =>
     if (!to) return;
     const content = correctionOutcomeEmail({ recipientName: to.full_name, clientName, clientId: c.client_id, ref: correctionRef(c.id), outcome, voucherId: c.journl_voucher_id, message: c.journl_message });
     await sendMail({ to: to.email, ...content, idempotencyKey: `correction-outcome/${correctionId}/${last.id}` });
+  });
+
+const SYNC_REASON_LABEL = {
+  staff_limit: "Staff limit reached",
+  role_not_included: "Role not included in the package",
+  no_active_package: "No active package",
+} as const;
+
+/** Primary-space sync could not add some team members: tell the admins. Never throws. */
+export const notifyWorkspaceSyncIssues = (spaceId: number, clientName: string, issues: { userName: string; reason: keyof typeof SYNC_REASON_LABEL }[]) =>
+  safely("workspace-sync-issues", async () => {
+    if (!issues.length) return;
+    const admins = await repo.listAdminContacts();
+    const list = issues.map((i) => ({ userName: i.userName, reasonLabel: SYNC_REASON_LABEL[i.reason] }));
+    for (const a of admins) {
+      const content = workspaceSyncIssueEmail({ recipientName: a.full_name, clientName, issues: list });
+      await sendMail({ to: a.email, ...content, idempotencyKey: `workspace-sync-issue/${spaceId}/${issues.map((i) => i.userName).join(",")}/${a.email}` });
+    }
   });

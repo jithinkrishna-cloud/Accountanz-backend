@@ -1,4 +1,7 @@
-export const PAYMENT_METHODS = ["bank_transfer", "upi", "cheque", "cash", "other"] as const;
+/** Methods staff can record by hand. */
+export const MANUAL_PAYMENT_METHODS = ["bank_transfer", "upi", "cheque", "cash", "other"] as const;
+/** Every method a payment can have; "easebuzz" is only ever set by an online payment. */
+export const PAYMENT_METHODS = [...MANUAL_PAYMENT_METHODS, "easebuzz"] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 
 export interface PaymentRow {

@@ -557,3 +557,20 @@ export function correctionOutcomeEmail(d: {
     text: plainText(`Hi ${d.recipientName},`, copy.line, d.message && `Details: ${d.message}`, `Open: ${url}`),
   };
 }
+
+export function workspaceSyncIssueEmail(d: { recipientName: string; clientName: string; issues: { userName: string; reasonLabel: string }[] }): EmailContent {
+  const url = appUrl("/projects");
+  return {
+    subject: `Workspace needs attention: ${d.clientName}`,
+    html: layout({
+      title: "Some team members could not be added to a client space",
+      preheader: `${d.issues.length} team member(s) for ${d.clientName} are not in the client space.`,
+      body:
+        paragraph(`Hi ${d.recipientName},`) +
+        paragraph(`The client space for ${d.clientName} could not include everyone on the client's team.`) +
+        facts(d.issues.map((i): [string, string] => [i.userName, i.reasonLabel])) +
+        button("Open Workspace", url),
+    }),
+    text: plainText(`Hi ${d.recipientName},`, `The client space for ${d.clientName} could not include everyone on the client's team.`, d.issues.map((i) => `${i.userName}: ${i.reasonLabel}`).join("\n"), `Open Workspace: ${url}`),
+  };
+}

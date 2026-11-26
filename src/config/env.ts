@@ -67,6 +67,15 @@ const schema = z.object({
   BIZPOLE_CLIENT_SECRET: z.string().min(1).optional(),
   /** 32-byte base64 key that encrypts stored Bizpole access and refresh tokens (separate from JOURNL_TOKEN_KEY). */
   BIZPOLE_TOKEN_KEY: z.string().refine((v) => Buffer.from(v, "base64").length === 32, "BIZPOLE_TOKEN_KEY must be 32 bytes, base64").optional(),
+  /** Easebuzz merchant credentials. Without them, "Pay now" says online payments aren't set up. */
+  EASEBUZZ_KEY: z.string().min(1).optional(),
+  EASEBUZZ_SALT: z.string().min(1).optional(),
+  EASEBUZZ_ENV: z.enum(["test", "prod"]).default("test"),
+  /**
+   * Public base URL that reaches this API; Easebuzz posts the browser back to `<it>/api/payments/easebuzz/return`.
+   * Unset = APP_URL, which works because the frontend forwards /api/* to this server.
+   */
+  API_PUBLIC_URL: z.url().optional(),
 });
 
 const parsed = schema.safeParse(process.env);

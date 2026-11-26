@@ -1,6 +1,7 @@
 import type { PoolConnection } from "mysql2/promise";
 import { execute, query, queryOne, type Param } from "../../database/connection.js";
-import { DEFAULT_STATUSES, WORKSPACE_ROLES, type MemberRow, type SpaceRole, type SpaceRow, type StatusCategory, type StatusRow } from "./project.types.js";
+import { DEFAULT_STATUSES, WORKSPACE_ROLES, type MemberRow, type MemberSource, type SyncIssueReason, type SpaceRole, type SpaceRow, type StatusCategory, type StatusRow } from "./project.types.js";
+import { activeAssignmentSql } from "../access/client-access.js";
 import type { CreateSpaceInput, UpdateSpaceInput } from "./project.validation.js";
 
 const STAFF_IN = WORKSPACE_ROLES.map(() => "?").join(",");
@@ -186,13 +187,65 @@ export const activeStaff = (ids: number[]) =>
       )
     : Promise.resolve([]);
 
-export async function addMember(spaceId: number, userId: number, role: SpaceRole, addedBy: number, conn: PoolConnection) {
+export async function addMember(spaceId: number, userId: number, role: SpaceRole, addedBy: number, conn: PoolConnection, source: MemberSource = "manual") {
   await execute(
-    `INSERT INTO project_space_members (space_id, user_id, role, added_by) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE role = role`,
-    [spaceId, userId, role, addedBy],
+    `INSERT INTO project_space_members (space_id, user_id, role, added_by, source) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE role = role`,
+    [spaceId, userId, role, addedBy, source],
     conn,
   );
 }
+
+/** Distinct users with an active assignment on the client, in order of their first assignment. */
+export const listClientTeam = (clientId: number, conn: PoolConnection) =>
+  query<{ user_id: number; full_name: string; portal_role: string }>(
+    `SELECT u.id AS user_id, u.full_name, u.portal_role
+       FROM assignments a JOIN users u ON u.id = a.user_id
+      WHERE a.client_id = ? AND ${activeAssignmentSql("a")}
+      GROUP BY u.id, u.full_name, u.portal_role ORDER BY MIN(a.id)`,
+    [clientId],
+    conn,
+  );
+
+export const listMembersWithSource = (spaceId: number, conn: PoolConnection) =>
+  query<{ user_id: number; role: SpaceRole; source: MemberSource; portal_role: string }>(
+    `SELECT m.user_id, m.role, m.source, u.portal_role
+       FROM project_space_members m JOIN users u ON u.id = m.user_id WHERE m.space_id = ?`,
+    [spaceId],
+    conn,
+  );
+
+/** Opens (or re-opens) an issue. Returns true only when it was not already open. */
+export async function upsertSyncIssue(spaceId: number, userId: number, reason: SyncIssueReason, conn: PoolConnection): Promise<boolean> {
+  const existing = await queryOne<{ id: number; resolved_at: Date | null }>(`SELECT id, resolved_at FROM project_space_sync_issues WHERE space_id = ? AND user_id = ? FOR UPDATE`, [spaceId, userId], conn);
+  if (!existing) {
+    await execute(`INSERT INTO project_space_sync_issues (space_id, user_id, reason) VALUES (?, ?, ?)`, [spaceId, userId, reason], conn);
+    return true;
+  }
+  if (existing.resolved_at) {
+    await execute(`UPDATE project_space_sync_issues SET reason = ?, resolved_at = NULL, created_at = UTC_TIMESTAMP() WHERE id = ?`, [reason, existing.id], conn);
+    return true;
+  }
+  await execute(`UPDATE project_space_sync_issues SET reason = ? WHERE id = ?`, [reason, existing.id], conn);
+  return false;
+}
+
+/** Resolves every open issue of the space except those for the `keepOpen` users. */
+export async function resolveSyncIssues(spaceId: number, keepOpen: number[], conn: PoolConnection) {
+  await execute(
+    `UPDATE project_space_sync_issues SET resolved_at = UTC_TIMESTAMP()
+      WHERE space_id = ? AND resolved_at IS NULL ${keepOpen.length ? `AND user_id NOT IN (${keepOpen.map(() => "?").join(",")})` : ""}`,
+    [spaceId, ...keepOpen],
+    conn,
+  );
+}
+
+export const listSyncIssues = (spaceId: number) =>
+  query<{ user_id: number; full_name: string; email: string; reason: SyncIssueReason; created_at: string }>(
+    `SELECT i.user_id, u.full_name, u.email, i.reason, i.created_at
+       FROM project_space_sync_issues i JOIN users u ON u.id = i.user_id
+      WHERE i.space_id = ? AND i.resolved_at IS NULL ORDER BY i.created_at, i.id`,
+    [spaceId],
+  );
 
 export const setMemberRole = (spaceId: number, userId: number, role: SpaceRole, conn: PoolConnection) =>
   execute(`UPDATE project_space_members SET role = ? WHERE space_id = ? AND user_id = ?`, [role, spaceId, userId], conn);

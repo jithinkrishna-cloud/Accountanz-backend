@@ -16,6 +16,7 @@ import { approvalDecisionSchema, clientTaskSchema, meetingRequestSchema, newThre
 import { activity as jlActivity, catalog as jlCatalog, team as jlTeam, setModule as jlSetModule } from "./journl-client-permission.controller.js";
 import { modulePermissionBody, modulePermissionParams } from "../journl-permissions/permission.validation.js";
 import { bizpoleOwnerRoutes } from "../integrations/bizpole/bizpole.routes.js";
+import { startInvoicePayment } from "../payments/easebuzz/easebuzz.service.js";
 import { attachDocumentSchema, createFolderSchema, moveDocumentSchema, renameFolderSchema, shareFolderSchema } from "../document-folders/document-folder.validation.js";
 
 /** Resolves the signed-in user's company once per request; every handler reads only that company. */
@@ -70,6 +71,11 @@ clientPortalRoutes.get("/meeting-requests", c.meetingRequests);
 clientPortalRoutes.post("/meeting-requests", validate({ body: meetingRequestSchema }), c.requestMeeting);
 clientPortalRoutes.post("/meeting-requests/:id/withdraw", validate({ params: idParam }), c.withdrawMeetingRequest);
 clientPortalRoutes.get("/billing", c.billing);
+// "Pay now": returns the Easebuzz checkout URL for the invoice's remaining balance.
+clientPortalRoutes.post("/invoices/:id/pay", validate({ params: idParam }), async (req, res) => {
+  const { id } = res.locals.params as IdParam;
+  res.json(await startInvoicePayment(req.user!, (res.locals.client as ClientContext).clientId, id));
+});
 clientPortalRoutes.get("/packages", c.packages);
 clientPortalRoutes.get("/proposal", c.proposal);
 clientPortalRoutes.post("/proposal/accept", c.acceptProposal);
