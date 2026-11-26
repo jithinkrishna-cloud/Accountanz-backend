@@ -1,10 +1,15 @@
 import { withTransaction } from "../../database/connection.js";
 import type { AuthUser } from "../../types/auth.types.js";
 import { AppError } from "../../utils/app-error.js";
-import { clientScope, requireLinkableClient } from "../access/client-access.js";
+import type { PoolConnection } from "mysql2/promise";
+import { canAccessClient, clientScope, requireLinkableClient } from "../access/client-access.js";
 import { deleteFile } from "../../utils/file-storage.js";
 import { logger } from "../../utils/logger.js";
 import { recordAudit } from "../audit/audit.service.js";
+import { onEngagementActivated } from "./client-space-hooks.js";
+import { syncPrimaryMembers } from "./client-spaces.js";
+import { effectiveEntitlement, isPortalAdminRole } from "./entitlement.js";
+import { NO_PACKAGE_MESSAGE } from "./limits.service.js";
 import { requireSpaceAdmin, spaceRoleFor } from "./project-access.js";
 import * as repo from "./project.repository.js";
 import type { SpaceContext, SpaceRole, StatusCategory } from "./project.types.js";
@@ -27,12 +32,34 @@ export const isKeyAvailable = async (key: string) => ({ key, available: !(await 
 
 export const clientOptions = (user: AuthUser) => repo.clientOptions(clientScope(user, "id"));
 
+const STAFF_CREATE_MESSAGE = "Ask an admin to create client spaces";
+const PRIMARY_ARCHIVE_MESSAGE = "The primary client space is archived and restored automatically with the client's engagement";
+
+/** Call under the client lock: throws when the client has no package or no room for another active client space. */
+async function requireRoomForClientSpace(clientId: number, conn: PoolConnection) {
+  const entitlement = await effectiveEntitlement(clientId, conn);
+  if (!entitlement) throw AppError.conflict(NO_PACKAGE_MESSAGE);
+  const limit = entitlement.workspaceLimit;
+  if (limit !== null && (await repo.countActiveClientSpaces(clientId, conn)) >= limit) {
+    throw AppError.conflict(`The ${entitlement.packageName} package allows ${limit} client workspaces. Archive one or ask a Super admin for more room.`);
+  }
+}
+
 export async function createSpace(actor: AuthUser, input: CreateSpaceInput) {
+  const isProject = input.kind === "client_project";
+  if (isProject && !isPortalAdminRole(actor.role)) throw AppError.forbidden(STAFF_CREATE_MESSAGE);
+  if (!isProject && input.client_id) throw new AppError("VALIDATION_ERROR", "Please check the highlighted fields", { fieldErrors: { client_id: ["Internal spaces can't be linked to a client"] } });
   if (await repo.keyTaken(input.space_key)) throw new AppError("VALIDATION_ERROR", "Please check the highlighted fields", { fieldErrors: { space_key: ["This key is already used by another space"] } });
-  if (input.client_id && !(await repo.clientExists(input.client_id))) throw AppError.notFound("Client");
-  await requireLinkableClient(actor, input.client_id);
+  if (isProject) {
+    if (!input.client_id || !(await repo.clientExists(input.client_id))) throw AppError.notFound("Client");
+    await requireLinkableClient(actor, input.client_id);
+  }
   const id = await withTransaction(async (conn) => {
-    const spaceId = await repo.insertSpace(input, "internal", actor.id, actor.id, conn);
+    if (isProject) {
+      await repo.lockClient(input.client_id!, conn);
+      await requireRoomForClientSpace(input.client_id!, conn);
+    }
+    const spaceId = await repo.insertSpace(input, isProject ? "client_project" : "internal", actor.id, actor.id, conn);
     await recordAudit(actor, { action: "Workspace space created", entityType: "ProjectSpace", entityId: spaceId, clientId: input.client_id ?? null, details: `${input.space_key} · ${input.name}` }, conn);
     return spaceId;
   });
@@ -46,8 +73,6 @@ export async function getSpace(user: AuthUser, space: SpaceContext) {
 
 export async function updateSpace(actor: AuthUser, space: SpaceContext, input: UpdateSpaceInput) {
   requireSpaceAdmin(space);
-  if (input.client_id && !(await repo.clientExists(input.client_id))) throw AppError.notFound("Client");
-  if (input.client_id !== undefined && input.client_id !== space.client_id) await requireLinkableClient(actor, input.client_id);
   await repo.updateSpace(space.id, input);
   return getSpace(actor, space);
 }
@@ -57,6 +82,7 @@ export async function updateSpace(actor: AuthUser, space: SpaceContext, input: U
  * Administrators only (super admins count as Administrator in every space). The caller must type the space key.
  */
 export async function deleteSpace(actor: AuthUser, space: SpaceContext, confirmKey: string) {
+  if (space.kind === "client_primary") throw AppError.conflict(PRIMARY_ARCHIVE_MESSAGE);
   requireSpaceAdmin(space);
   if (confirmKey.trim().toUpperCase() !== space.key) {
     throw new AppError("VALIDATION_ERROR", "Type the space key to confirm", { fieldErrors: { confirm_key: [`Type ${space.key} to confirm`] } });
@@ -79,6 +105,70 @@ export async function deleteSpace(actor: AuthUser, space: SpaceContext, confirmK
   });
   // Files go after the rows are gone, so a storage hiccup can't leave rows pointing at missing files.
   for (const key of fileKeys) await deleteFile(key).catch((err) => logger.warn({ err, key }, "Could not delete a Workspace attachment file"));
+}
+
+async function setSpaceArchived(actor: AuthUser, space: SpaceContext, archived: boolean) {
+  if (space.kind === "client_primary") throw AppError.conflict(PRIMARY_ARCHIVE_MESSAGE);
+  requireSpaceAdmin(space);
+  await withTransaction(async (conn) => {
+    if (!archived && space.client_id !== null) {
+      await repo.lockClient(space.client_id, conn);
+      await requireRoomForClientSpace(space.client_id, conn);
+    }
+    await repo.setArchived(space.id, archived, conn);
+    await recordAudit(actor, { action: archived ? "Workspace space archived" : "Workspace space unarchived", entityType: "ProjectSpace", entityId: space.id, clientId: space.client_id, details: `${space.key} · ${space.name}` }, conn);
+  });
+  return getSpace(actor, { ...space, archived_at: archived ? new Date().toISOString() : null });
+}
+
+export const archiveSpace = (actor: AuthUser, space: SpaceContext) => setSpaceArchived(actor, space, true);
+export const unarchiveSpace = (actor: AuthUser, space: SpaceContext) => setSpaceArchived(actor, space, false);
+
+// ── Client spaces ──
+function requirePortalAdmin(actor: AuthUser) {
+  if (!isPortalAdminRole(actor.role)) throw AppError.forbidden("Only admins can do this");
+}
+
+/** A client's primary space, package usage and what the caller may do next. */
+export async function clientSpaceOverview(user: AuthUser, clientId: number) {
+  if (!(await repo.clientExists(clientId)) || !(await canAccessClient(user, clientId))) throw AppError.notFound("Client");
+  const [primaryRef, entitlement] = await Promise.all([repo.findPrimarySpace(clientId), effectiveEntitlement(clientId)]);
+  const row = primaryRef ? await repo.findSpace(user.id, primaryRef.id) : null;
+  const used = await repo.countActiveClientSpaces(clientId);
+  const admin = isPortalAdminRole(user.role);
+  return {
+    primary: row ? { space_key: row.space_key, name: row.name, accessible: spaceRoleFor(user, row.kind, row.my_role) !== null, archived: row.archived_at !== null } : null,
+    usage: entitlement ? { used, limit: entitlement.workspaceLimit, package_name: entitlement.packageName } : null,
+    can_create_project: admin && !!entitlement && (entitlement.workspaceLimit === null || used < entitlement.workspaceLimit),
+    can_provision_primary: admin && !!entitlement && !row,
+  };
+}
+
+/** Admin repair: creates (or returns) the client's primary space, same path as engagement activation. */
+export async function provisionPrimary(actor: AuthUser, clientId: number) {
+  requirePortalAdmin(actor);
+  if (!(await repo.clientExists(clientId))) throw AppError.notFound("Client");
+  if (!(await effectiveEntitlement(clientId))) throw AppError.conflict(NO_PACKAGE_MESSAGE);
+  await withTransaction(async (conn) => {
+    await repo.lockClient(clientId, conn);
+    await onEngagementActivated(actor, clientId, conn);
+  });
+  const primary = await repo.findPrimarySpace(clientId);
+  if (!primary) throw AppError.conflict("The client space could not be created. Check the audit log for details.");
+  return (await repo.findSpace(actor.id, primary.id))!;
+}
+
+export async function syncSpace(actor: AuthUser, space: SpaceContext) {
+  requirePortalAdmin(actor);
+  if (space.kind !== "client_primary" || space.client_id === null) throw AppError.conflict("Only a client's primary space syncs with its team");
+  const clientId = space.client_id;
+  const r = await withTransaction((conn) => syncPrimaryMembers(actor, clientId, conn));
+  return { added: r.added, removed: r.removed, issues: r.issues };
+}
+
+export async function listSyncIssues(actor: AuthUser, space: SpaceContext) {
+  requirePortalAdmin(actor);
+  return { items: await repo.listSyncIssues(space.id) };
 }
 
 // ── Statuses ──

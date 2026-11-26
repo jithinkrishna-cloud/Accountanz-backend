@@ -10,10 +10,14 @@ import * as c from "./project.controller.js";
 import { WORKSPACE_ROLES } from "./project.types.js";
 import {
   addMembersSchema,
+  clientSpaceQuery,
   createSpaceSchema,
   deleteStatusSchema,
+  grantOverrideSchema,
   keyAvailableQuery,
   memberParam,
+  overrideParam,
+  provisionSchema,
   reorderStatusesSchema,
   searchQuery,
   statusIdParam,
@@ -31,6 +35,8 @@ projectRoutes.get("/", validate({ query: searchQuery.extend({ client_id: z.coerc
 projectRoutes.post("/", validate({ body: createSpaceSchema }), c.create);
 projectRoutes.get("/key-available", validate({ query: keyAvailableQuery }), c.keyAvailable);
 projectRoutes.get("/client-options", c.clientOptions);
+projectRoutes.get("/client-space", validate({ query: clientSpaceQuery }), c.clientSpace);
+projectRoutes.post("/client-space/provision", validate({ body: provisionSchema }), c.provision);
 
 /** Registered before "/:key" so "lookup" is not treated as a space key. */
 projectRoutes.get("/lookup/:key", c.lookup);
@@ -44,6 +50,13 @@ space.get("/", c.get);
 space.patch("/", validate({ body: updateSpaceSchema }), c.update);
 /** Permanently deletes the space; the body must repeat the space key. */
 space.delete("/", validate({ body: z.object({ confirm_key: z.string().trim().min(1, "Type the space key to confirm").max(10) }) }), c.remove);
+space.post("/archive", c.archive);
+space.post("/unarchive", c.unarchive);
+space.get("/limits", c.getLimits);
+space.post("/overrides", validate({ body: grantOverrideSchema }), c.grantOverride);
+space.delete("/overrides/:id", validate({ params: overrideParam }), c.revokeOverride);
+space.get("/sync-issues", c.syncIssues);
+space.post("/sync", c.sync);
 space.get("/summary", validate({ query: z.object({ assignee_id: z.coerce.number().int().positive().optional() }) }), c.summary);
 
 space.get("/statuses", c.statuses);

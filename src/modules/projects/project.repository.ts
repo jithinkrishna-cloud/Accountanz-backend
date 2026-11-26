@@ -62,7 +62,7 @@ export async function insertSpace(input: CreateSpaceInput, kind: SpaceKind, crea
   return spaceId;
 }
 
-export const findPrimarySpace = (clientId: number, conn: PoolConnection) =>
+export const findPrimarySpace = (clientId: number, conn?: PoolConnection) =>
   queryOne<{ id: number; archived_at: Date | null }>(`SELECT id, archived_at FROM project_spaces WHERE client_id = ? AND kind = 'client_primary'`, [clientId], conn);
 
 /** Locking read: sees the latest committed row even under REPEATABLE READ (used to recover from a create race). */
@@ -71,6 +71,57 @@ export const findPrimarySpaceLocking = (clientId: number, conn: PoolConnection) 
 
 export const setArchived = (spaceId: number, archived: boolean, conn: PoolConnection) =>
   execute(`UPDATE project_spaces SET archived_at = ${archived ? "UTC_TIMESTAMP()" : "NULL"} WHERE id = ?`, [spaceId], conn);
+
+/** Serialises concurrent limit checks for one client; call inside a transaction before counting. */
+export const lockClient = (clientId: number, conn: PoolConnection) => queryOne<{ id: number }>(`SELECT id FROM clients WHERE id = ? FOR UPDATE`, [clientId], conn);
+
+/** Non-archived primary and project spaces: what the workspace limit counts. */
+export const countActiveClientSpaces = async (clientId: number, conn?: PoolConnection) =>
+  Number((await queryOne<{ n: number }>(`SELECT COUNT(*) AS n FROM project_spaces WHERE client_id = ? AND kind IN ('client_primary','client_project') AND archived_at IS NULL`, [clientId], conn))?.n ?? 0);
+
+/** Members who take a staff seat (portal admins don't). */
+export const countStaffSeats = async (spaceId: number) =>
+  Number((await queryOne<{ n: number }>(`SELECT COUNT(*) AS n FROM project_space_members m JOIN users u ON u.id = m.user_id WHERE m.space_id = ? AND u.portal_role NOT IN ('super_admin','ops_admin')`, [spaceId]))?.n ?? 0);
+
+export interface OverrideRow {
+  id: number;
+  limit_type: "workspaces" | "staff_per_workspace";
+  extra: number;
+  reason: string;
+  expires_at: string | null;
+  created_by: number;
+  created_by_name: string | null;
+  created_at: string;
+}
+
+/** Overrides that are neither revoked nor expired. */
+export const listActiveOverrides = (clientId: number, conn?: PoolConnection) =>
+  query<OverrideRow>(
+    `SELECT o.id, o.limit_type, o.extra, o.reason, DATE_FORMAT(o.expires_at, '%Y-%m-%d') AS expires_at, o.created_by, u.full_name AS created_by_name, o.created_at
+       FROM client_entitlement_overrides o LEFT JOIN users u ON u.id = o.created_by
+      WHERE o.client_id = ? AND o.revoked_at IS NULL AND (o.expires_at IS NULL OR o.expires_at >= CURDATE()) ORDER BY o.id`,
+    [clientId],
+    conn,
+  );
+
+export const findActiveOverride = (clientId: number, id: number, conn: PoolConnection) =>
+  queryOne<{ id: number; limit_type: OverrideRow["limit_type"]; extra: number; reason: string; expires_at: string | null }>(
+    `SELECT id, limit_type, extra, reason, DATE_FORMAT(expires_at, '%Y-%m-%d') AS expires_at FROM client_entitlement_overrides WHERE id = ? AND client_id = ? AND revoked_at IS NULL FOR UPDATE`,
+    [id, clientId],
+    conn,
+  );
+
+export async function insertOverride(o: { clientId: number; limitType: OverrideRow["limit_type"]; extra: number; reason: string; expiresAt: string | null; createdBy: number }, conn: PoolConnection) {
+  const r = await execute(
+    `INSERT INTO client_entitlement_overrides (client_id, limit_type, extra, reason, expires_at, created_by) VALUES (?, ?, ?, ?, ?, ?)`,
+    [o.clientId, o.limitType, o.extra, o.reason, o.expiresAt, o.createdBy],
+    conn,
+  );
+  return r.insertId;
+}
+
+export const revokeOverrideRow = (id: number, revokedBy: number, conn: PoolConnection) =>
+  execute(`UPDATE client_entitlement_overrides SET revoked_at = UTC_TIMESTAMP(), revoked_by = ? WHERE id = ?`, [revokedBy, id], conn);
 
 export async function clientDisplayName(clientId: number, conn: PoolConnection) {
   return (await queryOne<{ name: string }>(`SELECT COALESCE(trade_name, legal_name) AS name FROM clients WHERE id = ?`, [clientId], conn))?.name ?? null;
@@ -107,7 +158,6 @@ export async function updateSpace(spaceId: number, input: UpdateSpaceInput) {
   const sets: string[] = [];
   const params: Param[] = [];
   if (input.name !== undefined) (sets.push("name = ?"), params.push(input.name));
-  if (input.client_id !== undefined) (sets.push("client_id = ?"), params.push(input.client_id ?? null));
   if (input.description !== undefined) (sets.push("description = ?"), params.push(input.description ?? null));
   if (sets.length) await execute(`UPDATE project_spaces SET ${sets.join(", ")} WHERE id = ?`, [...params, spaceId]);
 }

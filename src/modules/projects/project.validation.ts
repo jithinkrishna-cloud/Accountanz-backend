@@ -10,17 +10,22 @@ export const spaceKeySchema = z
 const nullableId = z.coerce.number().int().positive().nullable().optional();
 const optionalDescription = z.string().trim().max(1000).nullable().optional().transform((v) => v || null);
 
-export const createSpaceSchema = z.object({
-  name: z.string().trim().min(2, "Enter a name").max(80),
-  space_key: spaceKeySchema,
-  template: z.enum(TEMPLATES),
-  client_id: nullableId,
-  description: optionalDescription,
-});
+export const createSpaceSchema = z
+  .object({
+    name: z.string().trim().min(2, "Enter a name").max(80),
+    space_key: spaceKeySchema,
+    template: z.enum(TEMPLATES),
+    kind: z.enum(["internal", "client_project"]).default("internal"),
+    client_id: nullableId,
+    description: optionalDescription,
+  })
+  .superRefine((v, ctx) => {
+    if (v.kind === "internal" && v.client_id) ctx.addIssue({ code: "custom", path: ["client_id"], message: "Internal spaces can't be linked to a client" });
+    if (v.kind === "client_project" && !v.client_id) ctx.addIssue({ code: "custom", path: ["client_id"], message: "Choose a client" });
+  });
 
 export const updateSpaceSchema = z.object({
   name: z.string().trim().min(2, "Enter a name").max(80).optional(),
-  client_id: nullableId,
   description: optionalDescription,
 });
 
@@ -44,7 +49,25 @@ export const addMembersSchema = z.object({
 export const memberParam = z.object({ key: spaceKeySchema, userId: z.coerce.number().int().positive() });
 export const updateMemberSchema = z.object({ role: z.enum(SPACE_ROLES) });
 
+export const clientSpaceQuery = z.object({ client_id: z.coerce.number().int().positive() });
+export const provisionSchema = z.object({ client_id: z.coerce.number().int().positive() });
+
+const today = () => new Date().toISOString().slice(0, 10);
+export const grantOverrideSchema = z.object({
+  limit_type: z.enum(["workspaces", "staff_per_workspace"]),
+  extra: z.coerce.number().int().min(1, "Enter 1 to 99").max(99, "Enter 1 to 99"),
+  reason: z.string().trim().min(3, "Enter a reason").max(500),
+  expires_at: z
+    .string()
+    .regex(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/, "Use a date")
+    .refine((v) => v >= today(), "Choose today or a later date")
+    .nullable()
+    .optional(),
+});
+export const overrideParam = z.object({ key: spaceKeySchema, id: z.coerce.number().int().positive() });
+
 export type CreateSpaceInput = z.infer<typeof createSpaceSchema>;
+export type GrantOverrideInput = z.infer<typeof grantOverrideSchema>;
 export type UpdateSpaceInput = z.infer<typeof updateSpaceSchema>;
 export type StatusInput = z.infer<typeof statusSchema>;
 export type AddMembersInput = z.infer<typeof addMembersSchema>;

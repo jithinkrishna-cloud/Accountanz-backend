@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { spaceOf } from "./project-access.js";
+import * as limits from "./limits.service.js";
 import * as service from "./project.service.js";
 
 type P = { id?: number; userId?: number };
@@ -18,6 +19,16 @@ export async function remove(req: Request, res: Response) {
   await service.deleteSpace(req.user!, spaceOf(res), (req.body as { confirm_key: string }).confirm_key);
   res.status(204).end();
 }
+
+export const archive = async (req: Request, res: Response) => void res.json(await service.archiveSpace(req.user!, spaceOf(res)));
+export const unarchive = async (req: Request, res: Response) => void res.json(await service.unarchiveSpace(req.user!, spaceOf(res)));
+export const clientSpace = async (req: Request, res: Response) => void res.json(await service.clientSpaceOverview(req.user!, q(res).client_id as number));
+export const provision = async (req: Request, res: Response) => void res.json(await service.provisionPrimary(req.user!, (req.body as { client_id: number }).client_id));
+export const getLimits = async (_req: Request, res: Response) => void res.json(await limits.getLimits(spaceOf(res)));
+export const grantOverride = async (req: Request, res: Response) => void res.status(201).json(await limits.grantOverride(req.user!, spaceOf(res), req.body));
+export const revokeOverride = async (req: Request, res: Response) => void res.json(await limits.revokeOverride(req.user!, spaceOf(res), params(res).id!));
+export const syncIssues = async (req: Request, res: Response) => void res.json(await service.listSyncIssues(req.user!, spaceOf(res)));
+export const sync = async (req: Request, res: Response) => void res.json(await service.syncSpace(req.user!, spaceOf(res)));
 
 export const statuses = async (_req: Request, res: Response) => void res.json({ items: await service.listStatuses(spaceOf(res)) });
 export const createStatus = async (req: Request, res: Response) => void res.status(201).json({ items: await service.createStatus(spaceOf(res), req.body) });
