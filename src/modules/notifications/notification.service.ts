@@ -152,7 +152,7 @@ export const notifyCompanyRegistered = (caseId: number) =>
     const r = await repo.findRegistrationForEmail(caseId);
     if (!r) return;
     for (const a of await repo.listAdminContacts()) {
-      const content = companyRegisteredEmail({ adminName: a.full_name, company: r.company, gstin: r.gstin, state: r.state, ownerName: r.owner_name, ownerEmail: r.owner_email });
+      const content = companyRegisteredEmail({ adminName: a.full_name, clientId: r.client_id, company: r.company, gstin: r.gstin, state: r.state, ownerName: r.owner_name, ownerEmail: r.owner_email });
       await sendMail({ to: a.email, ...content, idempotencyKey: `company-registered/${caseId}/${a.email}` });
     }
   });

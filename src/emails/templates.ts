@@ -231,20 +231,20 @@ export function clientMessageEmail(d: { recipientName: string; clientName: strin
   };
 }
 
-export function companyRegisteredEmail(d: { adminName: string; company: string; gstin: string | null; state: string | null; ownerName: string; ownerEmail: string }): EmailContent {
-  const url = appUrl("/admin/onboarding");
+export function companyRegisteredEmail(d: { adminName: string; clientId: number; company: string; gstin: string | null; state: string | null; ownerName: string; ownerEmail: string }): EmailContent {
+  const url = appUrl(`/admin/clients/${d.clientId}`);
   return {
     subject: `New company registered: ${d.company}`,
     html: layout({
       title: "A new company joined Accountanz",
-      preheader: `${d.ownerName} registered ${d.company}. It's waiting in Onboarding.`,
+      preheader: `${d.ownerName} registered ${d.company}. Open the client to assess it or activate a package.`,
       body:
         paragraph(`Hi ${d.adminName},`) +
         paragraph(`${d.ownerName} registered ${d.company} on the platform. It is a new prospect at the Registered stage, ready for assessment.`) +
         facts([["Company", d.company], ["GSTIN", d.gstin], ["State", d.state], ["Owner", `${d.ownerName} (${d.ownerEmail})`]]) +
-        button("Open Onboarding", url),
+        button("Open client", url),
     }),
-    text: plainText(`Hi ${d.adminName},`, `${d.ownerName} (${d.ownerEmail}) registered ${d.company} on the platform. It is waiting at the Registered stage.`, `Open Onboarding: ${url}`),
+    text: plainText(`Hi ${d.adminName},`, `${d.ownerName} (${d.ownerEmail}) registered ${d.company} on the platform. Open the client to assess it or activate a package.`, `Open client: ${url}`),
   };
 }
 

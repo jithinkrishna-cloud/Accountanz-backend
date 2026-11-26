@@ -45,6 +45,10 @@ export async function listCases(q: OnboardingListQuery): Promise<Paged<Onboardin
     where.push("oc.stage = ?");
     params.push(q.stage);
   }
+  if (q.client_id) {
+    where.push("oc.client_id = ?");
+    params.push(q.client_id);
+  }
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
   const items = await query<OnboardingCaseRow>(
     `${SELECT} ${whereSql}

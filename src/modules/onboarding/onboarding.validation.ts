@@ -43,6 +43,7 @@ export const stageBodySchema = z.object({
 
 export const onboardingListQuerySchema = listQuerySchema.extend({
   stage: z.enum(ONBOARDING_STAGES).optional(),
+  client_id: z.coerce.number().int().positive().optional(),
 });
 
 export const serviceRequirementsSchema = z.object({
