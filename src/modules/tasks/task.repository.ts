@@ -44,7 +44,7 @@ export async function listTasks(
             c.id AS client_id, COALESCE(c.trade_name, c.legal_name) AS client_name,
             t.assignee_id, a.email AS assignee_email, r.email AS reviewer_email
        ${from} ${whereSql}
-      ORDER BY ${TASK_WORK_ORDER}, CASE WHEN t.status = 'approved' THEN t.period END DESC, t.due_date IS NULL, t.due_date, t.id
+      ORDER BY ${q.group === "client" ? "COALESCE(c.trade_name, c.legal_name), c.id, " : ""}${TASK_WORK_ORDER}, CASE WHEN t.status = 'approved' THEN t.period END DESC, t.due_date IS NULL, t.due_date, t.id
       LIMIT ? OFFSET ?`,
     [...params, q.pageSize, offsetOf(q)],
   );

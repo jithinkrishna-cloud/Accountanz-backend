@@ -15,6 +15,8 @@ export const taskListQuerySchema = listQuerySchema.extend({
   scope: z.enum(["mine", "clients"]).default("mine"),
   /** Quick views on the list: what needs attention first. */
   view: z.enum(TASK_VIEWS).optional(),
+  /** "client": order by client first, so a client's tasks stay together on a page (grouped list). */
+  group: z.enum(["client"]).optional(),
 });
 
 export const taskClientsQuerySchema = z.object({ scope: z.enum(["mine", "clients"]).default("mine") });
