@@ -17,6 +17,8 @@ export const engagementBodySchema = z
     package_id: z.coerce.number().int().positive("Choose a package"),
     start_date: optionalDate,
     renewal_date: optionalDate,
+    /** Admin onboarding a client directly: the package is active at once (no agreement, no first invoice). */
+    activate_now: z.boolean().optional().default(false),
   })
   .refine(datesInOrder, datesError);
 

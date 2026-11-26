@@ -120,7 +120,7 @@ export async function findOpenTerms(clientId: number, db: Db = pool) {
 }
 
 /** `monthly_fee`: the agreed fee when it differs from the package's list price (e.g. from a proposal); null = list price. */
-export async function insertEngagement(input: EngagementInput & { monthly_fee?: number | null }, db: Db = pool): Promise<number> {
+export async function insertEngagement(input: Omit<EngagementInput, "activate_now"> & { monthly_fee?: number | null }, db: Db = pool): Promise<number> {
   const r = await execute(
     `INSERT INTO engagements (client_id, package_id, monthly_fee, status, start_date, renewal_date) VALUES (?, ?, ?, 'draft', ?, ?)`,
     [input.client_id, input.package_id, input.monthly_fee ?? null, input.start_date, input.renewal_date],

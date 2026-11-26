@@ -48,9 +48,18 @@ export async function createEngagement(actor: AuthUser, input: EngagementInput) 
     if (oc?.stage === "proposal_sent" && oc.suggested_package_id !== input.package_id) {
       throw AppError.conflict("A proposal for a different package is waiting for this client. Take it back to assessment from Onboarding first, or wait for them to accept it.");
     }
-    const newId = await repo.insertEngagement(input, conn);
+    const startDate = input.start_date ?? (input.activate_now ? new Date().toISOString().slice(0, 10) : input.start_date);
+    const newId = await repo.insertEngagement({ ...input, start_date: startDate }, conn);
     await recordAudit(actor, { action: "Engagement created", entityType: "Engagement", entityId: newId, clientId: input.client_id, details: `${client.legal_name} on ${pkg.name}` }, conn);
+    if (input.activate_now) {
+      // Direct onboarding by an admin: active immediately. The signed agreement can be uploaded later; no first
+      // invoice is issued here (billing starts with the regular billing run).
+      if (client.status === "lead" || client.status === "onboarding") await clientRepo.updateClient(input.client_id, { status: "active" }, conn);
+      await repo.setStatus(newId, "active", conn);
+      await recordAudit(actor, { action: "Engagement status changed", entityType: "Engagement", entityId: newId, clientId: input.client_id, details: "Draft → Active (activated on creation, no agreement or first invoice)" }, conn);
+    }
     await syncCaseWithEngagement(actor, input.client_id, "team", conn);
+    if (input.activate_now) await onEngagementActivated(actor, input.client_id, conn);
     return newId;
   });
   return getEngagement(id);
