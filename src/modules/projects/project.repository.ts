@@ -80,8 +80,8 @@ export const countActiveClientSpaces = async (clientId: number, conn?: PoolConne
   Number((await queryOne<{ n: number }>(`SELECT COUNT(*) AS n FROM project_spaces WHERE client_id = ? AND kind IN ('client_primary','client_project') AND archived_at IS NULL`, [clientId], conn))?.n ?? 0);
 
 /** Members who take a staff seat (portal admins don't). */
-export const countStaffSeats = async (spaceId: number) =>
-  Number((await queryOne<{ n: number }>(`SELECT COUNT(*) AS n FROM project_space_members m JOIN users u ON u.id = m.user_id WHERE m.space_id = ? AND u.portal_role NOT IN ('super_admin','ops_admin')`, [spaceId]))?.n ?? 0);
+export const countStaffSeats = async (spaceId: number, conn?: PoolConnection) =>
+  Number((await queryOne<{ n: number }>(`SELECT COUNT(*) AS n FROM project_space_members m JOIN users u ON u.id = m.user_id WHERE m.space_id = ? AND u.portal_role NOT IN ('super_admin','ops_admin')`, [spaceId], conn))?.n ?? 0);
 
 export interface OverrideRow {
   id: number;
@@ -236,8 +236,8 @@ export const countAdmins = async (spaceId: number, conn: PoolConnection) =>
 /** Active staff users among the given ids (others are silently ignored by the caller's check). */
 export const activeStaff = (ids: number[]) =>
   ids.length
-    ? query<{ id: number; full_name: string }>(
-        `SELECT id, full_name FROM users WHERE id IN (${ids.map(() => "?").join(",")}) AND status <> 'disabled' AND portal_role IN (${STAFF_IN})`,
+    ? query<{ id: number; full_name: string; portal_role: string }>(
+        `SELECT id, full_name, portal_role FROM users WHERE id IN (${ids.map(() => "?").join(",")}) AND status <> 'disabled' AND portal_role IN (${STAFF_IN})`,
         [...ids, ...WORKSPACE_ROLES],
       )
     : Promise.resolve([]);

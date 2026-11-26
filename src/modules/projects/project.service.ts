@@ -5,6 +5,7 @@ import type { PoolConnection } from "mysql2/promise";
 import { canAccessClient, clientScope, requireLinkableClient } from "../access/client-access.js";
 import { deleteFile } from "../../utils/file-storage.js";
 import { logger } from "../../utils/logger.js";
+import { humanize } from "../../utils/format.js";
 import { recordAudit } from "../audit/audit.service.js";
 import { onEngagementActivated } from "./client-space-hooks.js";
 import { syncPrimaryMembers } from "./client-spaces.js";
@@ -223,13 +224,33 @@ export async function reorderStatuses(space: SpaceContext, ids: number[]) {
 export const listMembers = (space: SpaceContext) => repo.listMembers(space.id);
 export const searchStaff = (space: SpaceContext, q?: string) => repo.searchStaff(space.id, q);
 
+const roleLabel = (role: string) => (role === "cfo" ? "CFO" : humanize(role));
+
+/** Package rules for adding staff to a client space. Call inside the transaction; locks the client row first. */
+async function enforceMemberLimits(spaceId: number, clientId: number, staff: { id: number; portal_role: string }[], conn: PoolConnection) {
+  await repo.lockClient(clientId, conn);
+  const nonAdmins = staff.filter((s) => !isPortalAdminRole(s.portal_role));
+  if (!nonAdmins.length) return;
+  const entitlement = await effectiveEntitlement(clientId, conn);
+  if (!entitlement) throw AppError.conflict(NO_PACKAGE_MESSAGE);
+  const ineligible = nonAdmins.find((s) => !entitlement.teamRoles.includes(s.portal_role));
+  if (ineligible) throw AppError.conflict(`${roleLabel(ineligible.portal_role)} isn't included in the ${entitlement.packageName} package`);
+  if (entitlement.staffPerWorkspace === null) return;
+  let added = 0;
+  for (const s of nonAdmins) if (!(await repo.findMember(spaceId, s.id, conn))) added++;
+  if (added && (await repo.countStaffSeats(spaceId, conn)) + added > entitlement.staffPerWorkspace) {
+    throw AppError.conflict(`The ${entitlement.packageName} package allows ${entitlement.staffPerWorkspace} staff per workspace`);
+  }
+}
+
 export async function addMembers(actor: AuthUser, space: SpaceContext, input: AddMembersInput) {
   requireSpaceAdmin(space);
   const ids = [...new Set(input.user_ids)];
   const staff = await repo.activeStaff(ids);
   if (staff.length !== ids.length) throw AppError.conflict("Only active Accountanz staff can be added to a space");
   await withTransaction(async (conn) => {
-    for (const s of staff) await repo.addMember(space.id, s.id, input.role, actor.id, conn);
+    if (space.client_id !== null) await enforceMemberLimits(space.id, space.client_id, staff, conn);
+    for (const s of staff) await repo.addMember(space.id, s.id, input.role, actor.id, conn, "manual");
     await recordAudit(actor, { action: "Workspace members added", entityType: "ProjectSpace", entityId: space.id, clientId: space.client_id, details: `${space.key}: ${staff.map((s) => s.full_name).join(", ")} as ${input.role}` }, conn);
   });
   return repo.listMembers(space.id);
