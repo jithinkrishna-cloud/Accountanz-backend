@@ -5,13 +5,23 @@ import { clientScope, requireLinkableClient } from "../access/client-access.js";
 import { deleteFile } from "../../utils/file-storage.js";
 import { logger } from "../../utils/logger.js";
 import { recordAudit } from "../audit/audit.service.js";
-import { requireSpaceAdmin } from "./project-access.js";
+import { requireSpaceAdmin, spaceRoleFor } from "./project-access.js";
 import * as repo from "./project.repository.js";
 import type { SpaceContext, SpaceRole, StatusCategory } from "./project.types.js";
 import type { AddMembersInput, CreateSpaceInput, StatusInput, UpdateSpaceInput } from "./project.validation.js";
 
 // ── Spaces ──
-export const listSpaces = (user: AuthUser, f: { q?: string; client_id?: number }) => repo.listSpaces(user.id, user.role === "super_admin", f);
+export const listSpaces = (user: AuthUser, f: { q?: string; client_id?: number; archived?: boolean }) =>
+  repo.listSpaces(user.id, user.role === "super_admin" ? "all" : user.role === "ops_admin" ? "members_or_client" : "members", f);
+
+/** Client spaces are discoverable by key (to request access); internal spaces the caller can't see look nonexistent. */
+export async function lookupSpace(user: AuthUser, key: string) {
+  const row = await repo.findSpaceByKey(user.id, key);
+  if (!row) throw AppError.notFound("Space");
+  const accessible = spaceRoleFor(user, row.kind, row.my_role) !== null;
+  if (row.kind === "internal" && !accessible) throw AppError.notFound("Space");
+  return { space_key: row.space_key, name: row.name, kind: row.kind, accessible };
+}
 
 export const isKeyAvailable = async (key: string) => ({ key, available: !(await repo.keyTaken(key)) });
 

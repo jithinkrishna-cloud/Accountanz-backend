@@ -7,6 +7,8 @@ export const TEMPLATES = ["scrum", "kanban"] as const;
 export type Template = (typeof TEMPLATES)[number];
 export const SPACE_ROLES = ["admin", "member"] as const;
 export type SpaceRole = (typeof SPACE_ROLES)[number];
+export const SPACE_KINDS = ["client_primary", "client_project", "internal"] as const;
+export type SpaceKind = (typeof SPACE_KINDS)[number];
 export const STATUS_CATEGORIES = ["todo", "in_progress", "done"] as const;
 export type StatusCategory = (typeof STATUS_CATEGORIES)[number];
 
@@ -24,6 +26,8 @@ export interface SpaceContext {
   name: string;
   template: Template;
   client_id: number | null;
+  kind: SpaceKind;
+  archived_at: string | null;
   /** Super admins act as Administrator in every space. */
   role: SpaceRole;
 }
@@ -36,6 +40,8 @@ export interface SpaceRow {
   template: Template;
   client_id: number | null;
   client_name: string | null;
+  kind: SpaceKind;
+  archived_at: string | null;
   created_at: string;
   item_count: number;
   member_count: number;

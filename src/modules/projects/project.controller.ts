@@ -7,7 +7,8 @@ const params = (res: Response) => res.locals.params as P;
 const q = (res: Response) => (res.locals.query ?? {}) as Record<string, unknown>;
 
 export const list = async (req: Request, res: Response) =>
-  void res.json({ items: await service.listSpaces(req.user!, { q: q(res).q as string | undefined, client_id: q(res).client_id as number | undefined }) });
+  void res.json({ items: await service.listSpaces(req.user!, { q: q(res).q as string | undefined, client_id: q(res).client_id as number | undefined, archived: q(res).archived as boolean | undefined }) });
+export const lookup = async (req: Request, res: Response) => void res.json(await service.lookupSpace(req.user!, String(req.params.key)));
 export const keyAvailable = async (_req: Request, res: Response) => void res.json(await service.isKeyAvailable(q(res).key as string));
 export const clientOptions = async (req: Request, res: Response) => void res.json({ items: await service.clientOptions(req.user!) });
 export const create = async (req: Request, res: Response) => void res.status(201).json(await service.createSpace(req.user!, req.body));

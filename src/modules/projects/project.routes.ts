@@ -5,7 +5,7 @@ import { authorize } from "../../middleware/authorize.js";
 import { validate } from "../../middleware/validate.js";
 import { itemRoutes } from "../project-items/item.routes.js";
 import { sprintRoutes } from "../project-sprints/sprint.routes.js";
-import { withSpace } from "./project-access.js";
+import { rejectWritesWhenArchived, withSpace } from "./project-access.js";
 import * as c from "./project.controller.js";
 import { WORKSPACE_ROLES } from "./project.types.js";
 import {
@@ -27,14 +27,18 @@ import {
 export const projectRoutes = Router();
 projectRoutes.use(authenticate, authorize(...WORKSPACE_ROLES));
 
-projectRoutes.get("/", validate({ query: searchQuery.extend({ client_id: z.coerce.number().int().positive().optional() }) }), c.list);
+projectRoutes.get("/", validate({ query: searchQuery.extend({ client_id: z.coerce.number().int().positive().optional(), archived: z.enum(["true", "false"]).transform((v) => v === "true").optional() }) }), c.list);
 projectRoutes.post("/", validate({ body: createSpaceSchema }), c.create);
 projectRoutes.get("/key-available", validate({ query: keyAvailableQuery }), c.keyAvailable);
 projectRoutes.get("/client-options", c.clientOptions);
 
+/** Registered before "/:key" so "lookup" is not treated as a space key. */
+projectRoutes.get("/lookup/:key", c.lookup);
+
 /** Everything under /:key resolves the space and the caller's role once (404 for non-members). */
 const space = Router({ mergeParams: true });
 projectRoutes.use("/:key", withSpace, space);
+space.use(rejectWritesWhenArchived);
 
 space.get("/", c.get);
 space.patch("/", validate({ body: updateSpaceSchema }), c.update);

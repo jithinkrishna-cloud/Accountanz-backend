@@ -8,7 +8,7 @@ const STAFF_IN = WORKSPACE_ROLES.map(() => "?").join(",");
 
 // ── Spaces ──
 const SPACE_SELECT = `
-  SELECT s.id, s.space_key, s.name, s.description, s.template, s.client_id,
+  SELECT s.id, s.space_key, s.name, s.description, s.template, s.client_id, s.kind, s.archived_at,
          COALESCE(c.trade_name, c.legal_name) AS client_name, s.created_at,
          (SELECT COUNT(*) FROM project_items i WHERE i.space_id = s.id) AS item_count,
          (SELECT COUNT(*) FROM project_space_members pm WHERE pm.space_id = s.id) AS member_count,
@@ -20,15 +20,20 @@ const SPACE_SELECT = `
     LEFT JOIN clients c ON c.id = s.client_id
     LEFT JOIN project_space_members m ON m.space_id = s.id AND m.user_id = ?`;
 
-/** Spaces the user can see: all for super admins, otherwise the ones they are a member of. */
-export async function listSpaces(userId: number, all: boolean, f: { q?: string; client_id?: number }) {
-  const where: string[] = [];
+export type SpaceVisibility = "all" | "members_or_client" | "members";
+
+/** Spaces the user can see: all for super admins; members or any non-internal space for ops admins; otherwise memberships. */
+export async function listSpaces(userId: number, visibility: SpaceVisibility, f: { q?: string; client_id?: number; archived?: boolean }) {
+  const where: string[] = [f.archived ? "s.archived_at IS NOT NULL" : "s.archived_at IS NULL"];
   const params: Param[] = [userId];
-  if (!all) where.push("m.user_id IS NOT NULL");
+  if (visibility === "members") where.push("m.user_id IS NOT NULL");
+  if (visibility === "members_or_client") where.push("(m.user_id IS NOT NULL OR s.kind <> 'internal')");
   if (f.q) (where.push("(s.name LIKE ? OR s.space_key LIKE ?)"), params.push(`%${f.q}%`, `%${f.q}%`));
   if (f.client_id) (where.push("s.client_id = ?"), params.push(f.client_id));
   return query<SpaceRow>(`${SPACE_SELECT} ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY s.name`, params);
 }
+
+export const findSpaceByKey = (userId: number, key: string) => queryOne<SpaceRow>(`${SPACE_SELECT} WHERE s.space_key = ?`, [userId, key.toUpperCase()]);
 
 export const findSpace = (userId: number, spaceId: number) => queryOne<SpaceRow>(`${SPACE_SELECT} WHERE s.id = ?`, [userId, spaceId]);
 
