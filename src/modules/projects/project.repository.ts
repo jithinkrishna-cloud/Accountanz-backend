@@ -31,22 +31,37 @@ export async function listSpaces(userId: number, all: boolean, f: { q?: string; 
 
 export const findSpace = (userId: number, spaceId: number) => queryOne<SpaceRow>(`${SPACE_SELECT} WHERE s.id = ?`, [userId, spaceId]);
 
-export const keyTaken = async (key: string) => !!(await queryOne<{ id: number }>(`SELECT id FROM project_spaces WHERE space_key = ?`, [key]));
+export const keyTaken = async (key: string, db?: PoolConnection) => !!(await queryOne<{ id: number }>(`SELECT id FROM project_spaces WHERE space_key = ?`, [key], db));
 
 export const clientExists = async (id: number) => !!(await queryOne<{ id: number }>(`SELECT id FROM clients WHERE id = ?`, [id]));
 
-export async function insertSpace(input: CreateSpaceInput, userId: number, conn: PoolConnection) {
+export type SpaceKind = "client_primary" | "client_project" | "internal";
+
+/** Inserts a space with its default statuses; `firstAdminId` (if any) becomes creator and admin member. */
+export async function insertSpace(input: CreateSpaceInput, kind: SpaceKind, firstAdminId: number | null, conn: PoolConnection) {
   const r = await execute(
-    `INSERT INTO project_spaces (space_key, name, description, template, client_id, created_by) VALUES (?, ?, ?, ?, ?, ?)`,
-    [input.space_key, input.name, input.description ?? null, input.template, input.client_id ?? null, userId],
+    `INSERT INTO project_spaces (space_key, name, description, template, client_id, kind, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [input.space_key, input.name, input.description ?? null, input.template, input.client_id ?? null, kind, firstAdminId],
     conn,
   );
   const spaceId = r.insertId;
   for (const [i, s] of DEFAULT_STATUSES.entries()) {
     await execute(`INSERT INTO project_statuses (space_id, name, category, position) VALUES (?, ?, ?, ?)`, [spaceId, s.name, s.category, i], conn);
   }
-  await execute(`INSERT INTO project_space_members (space_id, user_id, role, added_by) VALUES (?, ?, 'admin', ?)`, [spaceId, userId, userId], conn);
+  if (firstAdminId !== null) {
+    await execute(`INSERT INTO project_space_members (space_id, user_id, role, added_by) VALUES (?, ?, 'admin', ?)`, [spaceId, firstAdminId, firstAdminId], conn);
+  }
   return spaceId;
+}
+
+export const findPrimarySpace = (clientId: number, conn: PoolConnection) =>
+  queryOne<{ id: number; archived_at: Date | null }>(`SELECT id, archived_at FROM project_spaces WHERE client_id = ? AND kind = 'client_primary'`, [clientId], conn);
+
+export const setArchived = (spaceId: number, archived: boolean, conn: PoolConnection) =>
+  execute(`UPDATE project_spaces SET archived_at = ${archived ? "UTC_TIMESTAMP()" : "NULL"} WHERE id = ?`, [spaceId], conn);
+
+export async function clientDisplayName(clientId: number, conn: PoolConnection) {
+  return (await queryOne<{ name: string }>(`SELECT COALESCE(trade_name, legal_name) AS name FROM clients WHERE id = ?`, [clientId], conn))?.name ?? null;
 }
 
 /** What deleting a space removes (for the audit log), and the stored files to delete afterwards. */
