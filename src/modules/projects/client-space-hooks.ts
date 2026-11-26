@@ -5,9 +5,16 @@ import { recordAudit } from "../audit/audit.service.js";
 import { archivePrimaryForClient, ensurePrimarySpace, syncPrimaryMembers } from "./client-spaces.js";
 import * as repo from "./project.repository.js";
 
+/** InnoDB rolls back the whole transaction on a deadlock, so there is no savepoint left to return to. */
+function isDeadlock(err: unknown) {
+  const e = err as { code?: unknown; errno?: unknown } | null;
+  return e?.code === "ER_LOCK_DEADLOCK" || e?.errno === 1213;
+}
+
 /**
  * Runs `work` under a savepoint so a Workspace failure never fails, or leaves partial rows in, the
- * caller's transaction. Never throws.
+ * caller's transaction. The failure is swallowed only once the savepoint rollback has succeeded; a
+ * deadlock, or a failed rollback, means the caller's transaction is gone, so the error is rethrown.
  */
 // Savepoint statements are not supported by the prepared-statement protocol, so they go through conn.query.
 export async function guarded(actor: AuthUser, clientId: number, label: string, conn: PoolConnection, work: () => Promise<void>) {
@@ -16,12 +23,17 @@ export async function guarded(actor: AuthUser, clientId: number, label: string, 
     await work();
     await conn.query("RELEASE SAVEPOINT ws_hook");
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    if (isDeadlock(err)) {
+      logger.error({ err, clientId, hook: label }, "Workspace hook deadlocked; transaction rolled back");
+      throw err;
+    }
     try {
       await conn.query("ROLLBACK TO SAVEPOINT ws_hook");
     } catch (rollbackErr) {
-      logger.error({ err: rollbackErr, clientId }, "Workspace hook rollback failed");
+      logger.error({ err: rollbackErr, clientId, hook: label }, "Workspace hook rollback failed");
+      throw err;
     }
+    const message = err instanceof Error ? err.message : String(err);
     logger.error({ err, clientId, hook: label }, "Workspace sync failed");
     try {
       await recordAudit(actor, { action: "Workspace sync failed", entityType: "Client", entityId: clientId, clientId, details: `${label}: ${message}`.slice(0, 500) }, conn);

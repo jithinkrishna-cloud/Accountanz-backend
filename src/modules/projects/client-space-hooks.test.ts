@@ -60,6 +60,40 @@ describe("onEngagementActivated", () => {
   });
 });
 
+describe("guarded failure handling", () => {
+  it("rethrows a deadlock (by code) without touching the savepoint or auditing", async () => {
+    const err = Object.assign(new Error("Deadlock found"), { code: "ER_LOCK_DEADLOCK", errno: 1213 });
+    m.ensurePrimarySpace.mockRejectedValue(err);
+    await expect(onEngagementActivated(actor, 7, conn)).rejects.toBe(err);
+    expect(sqls()).toEqual(["SAVEPOINT ws_hook"]);
+    expect(m.recordAudit).not.toHaveBeenCalled();
+  });
+
+  it("rethrows a deadlock identified only by errno 1213", async () => {
+    const err = Object.assign(new Error("Deadlock found"), { errno: 1213 });
+    m.ensurePrimarySpace.mockRejectedValue(err);
+    await expect(onEngagementActivated(actor, 7, conn)).rejects.toBe(err);
+  });
+
+  it("rethrows the original error when ROLLBACK TO SAVEPOINT fails", async () => {
+    const err = new Error("boom");
+    m.ensurePrimarySpace.mockRejectedValue(err);
+    m.execute.mockImplementation(async (sql: string) => {
+      if (sql === "ROLLBACK TO SAVEPOINT ws_hook") throw new Error("SAVEPOINT ws_hook does not exist");
+      return {};
+    });
+    await expect(onEngagementActivated(actor, 7, conn)).rejects.toBe(err);
+    expect(m.recordAudit).not.toHaveBeenCalled();
+  });
+
+  it("swallows a lock wait timeout once the savepoint rollback succeeds", async () => {
+    m.ensurePrimarySpace.mockRejectedValue(Object.assign(new Error("Lock wait timeout"), { code: "ER_LOCK_WAIT_TIMEOUT", errno: 1205 }));
+    await expect(onEngagementActivated(actor, 7, conn)).resolves.toBeUndefined();
+    expect(sqls()).toEqual(["SAVEPOINT ws_hook", "ROLLBACK TO SAVEPOINT ws_hook"]);
+    expect(m.recordAudit).toHaveBeenCalled();
+  });
+});
+
 describe("onEngagementEnded", () => {
   it("archives the primary space", async () => {
     await onEngagementEnded(actor, 7, conn);
