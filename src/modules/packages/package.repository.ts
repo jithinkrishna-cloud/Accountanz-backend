@@ -4,13 +4,23 @@ import type { PackageRow, PackageWithServices } from "./package.types.js";
 import type { PackageInput, PackageUpdateInput } from "./package.validation.js";
 
 type Db = PoolConnection | typeof pool;
-const WRITABLE = ["name", "description", "monthly_fee", "billing_cycle", "scope_notes", "team_roles", "is_active"] as const;
+const WRITABLE = [
+  "name",
+  "description",
+  "monthly_fee",
+  "billing_cycle",
+  "scope_notes",
+  "team_roles",
+  "workspace_limit",
+  "staff_per_workspace",
+  "is_active",
+] as const;
 /** team_roles is stored as JSON. */
 const toDb = (k: (typeof WRITABLE)[number], v: unknown) => (k === "team_roles" ? JSON.stringify(v ?? []) : (v ?? null)) as Param;
 
 export async function listPackages(id?: number): Promise<PackageWithServices[]> {
   const rows = await query<PackageRow>(
-    `SELECT id, name, description, monthly_fee, billing_cycle, scope_notes, team_roles, is_active FROM packages ${id ? "WHERE id = ?" : ""} ORDER BY monthly_fee DESC, name`,
+    `SELECT id, name, description, monthly_fee, billing_cycle, scope_notes, team_roles, workspace_limit, staff_per_workspace, is_active FROM packages ${id ? "WHERE id = ?" : ""} ORDER BY monthly_fee DESC, name`,
     id ? [id] : [],
   );
   if (!rows.length) return [];

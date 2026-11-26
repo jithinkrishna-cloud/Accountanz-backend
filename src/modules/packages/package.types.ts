@@ -13,6 +13,8 @@ export interface PackageRow {
   billing_cycle: BillingCycle;
   scope_notes: string | null;
   team_roles: PackageRole[];
+  workspace_limit: number | null;
+  staff_per_workspace: number | null;
   is_active: 0 | 1;
 }
 

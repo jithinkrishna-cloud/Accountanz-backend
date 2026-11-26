@@ -2,6 +2,8 @@ import { z } from "zod";
 import { money, optionalText } from "../../utils/zod-helpers.js";
 import { BILLING_CYCLES, PACKAGE_ROLES } from "./package.types.js";
 
+const limitSchema = z.number().int().min(0).max(999).nullable();
+
 export const packageBodySchema = z.object({
   name: z.string().trim().min(2, "Enter a package name").max(150),
   description: optionalText(500),
@@ -14,6 +16,10 @@ export const packageBodySchema = z.object({
     .min(1, "Include at least one role")
     .default(["bookkeeper", "finance_manager"])
     .transform((roles) => PACKAGE_ROLES.filter((r) => roles.includes(r))),
+  /** Client workspaces the package allows. NULL = unlimited. */
+  workspace_limit: limitSchema,
+  /** Staff seats per workspace. NULL = unlimited. */
+  staff_per_workspace: limitSchema,
   is_active: z.boolean().default(true),
   service_ids: z
     .array(z.coerce.number().int().positive())
