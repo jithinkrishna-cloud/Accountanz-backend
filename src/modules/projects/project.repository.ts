@@ -31,9 +31,9 @@ export async function listSpaces(userId: number, all: boolean, f: { q?: string; 
 
 export const findSpace = (userId: number, spaceId: number) => queryOne<SpaceRow>(`${SPACE_SELECT} WHERE s.id = ?`, [userId, spaceId]);
 
-/** With a transaction connection this is a locking read, so it sees rows committed after the snapshot began. */
+/** Plain (non-locking) read: a locking read on a missing key would take a gap lock and invite deadlocks. */
 export const keyTaken = async (key: string, db?: PoolConnection) =>
-  !!(await queryOne<{ id: number }>(`SELECT id FROM project_spaces WHERE space_key = ?${db ? " FOR SHARE" : ""}`, [key], db));
+  !!(await queryOne<{ id: number }>(`SELECT id FROM project_spaces WHERE space_key = ?`, [key], db));
 
 export const clientExists = async (id: number) => !!(await queryOne<{ id: number }>(`SELECT id FROM clients WHERE id = ?`, [id]));
 
