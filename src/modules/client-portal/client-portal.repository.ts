@@ -121,8 +121,8 @@ export async function disconnectJournlConnection(id: number, conn: PoolConnectio
 
 // ── Documents & requests ──
 export const listDocuments = (clientId: number) =>
-  query<{ id: number; file_name: string; category: string; period: string | null; status: string; review_note: string | null; created_at: string; uploaded_by: string | null; request_id: number | null; folder_id: number | null; size_bytes: number | null; from_client: 0 | 1 }>(
-    `SELECT d.id, d.file_name, d.category, d.period, d.status, d.review_note, d.created_at, u.full_name AS uploaded_by, d.request_id, d.folder_id, d.size_bytes,
+  query<{ id: number; file_name: string; category: string; period: string | null; status: string; review_note: string | null; created_at: string; uploaded_by: string | null; request_id: number | null; folder_id: number | null; size_bytes: number | null; mime_type: string | null; from_client: 0 | 1 }>(
+    `SELECT d.id, d.file_name, d.category, d.period, d.status, d.review_note, d.created_at, u.full_name AS uploaded_by, d.request_id, d.folder_id, d.size_bytes, d.mime_type,
             COALESCE(u.portal_role IN ('client_owner', 'client_member'), 0) AS from_client
        FROM documents d LEFT JOIN users u ON u.id = d.uploaded_by WHERE d.client_id = ? ORDER BY d.created_at DESC, d.id DESC`,
     [clientId],

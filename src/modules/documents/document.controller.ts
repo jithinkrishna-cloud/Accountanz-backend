@@ -1,12 +1,24 @@
 import { pipeline } from "node:stream/promises";
 import type { Request, Response } from "express";
 import type { IdParam } from "../../middleware/validate.js";
+import type { StoredFile } from "../../utils/file-storage.js";
 import * as folderService from "../document-folders/document-folder.service.js";
 import type { MoveDocumentInput, RenameFolderInput } from "../document-folders/document-folder.validation.js";
 import * as service from "./document.service.js";
 import type { CreateRequestInput, DocumentListQuery, DocumentStatusInput, RequestListQuery, StaffCreateFolderInput, StaffUploadInput } from "./document.validation.js";
 
 const id = (res: Response) => (res.locals.params as IdParam).id;
+const VIEWABLE = /^(application\/pdf|image\/(png|jpe?g|gif|webp))$/i;
+
+async function sendFile(res: Response, { file, name }: { file: StoredFile; name: string }, inline = false) {
+  res.setHeader("Cache-Control", "private, no-store");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  if (inline && VIEWABLE.test(file.contentType)) res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(name)}`);
+  else res.attachment(name);
+  res.type(file.contentType);
+  if (Number.isFinite(file.size)) res.setHeader("Content-Length", String(file.size));
+  await pipeline(file.stream, res);
+}
 
 export async function list(req: Request, res: Response) {
   res.json(await service.listDocuments(req.user!, res.locals.query as DocumentListQuery));
@@ -21,12 +33,7 @@ export async function setStatus(req: Request, res: Response) {
 }
 
 export async function download(req: Request, res: Response) {
-  const { file, name } = await service.openDocument(req.user!, id(res));
-  res.setHeader("Cache-Control", "private, no-store");
-  res.attachment(name);
-  res.type(file.contentType);
-  if (Number.isFinite(file.size)) res.setHeader("Content-Length", String(file.size));
-  await pipeline(file.stream, res);
+  await sendFile(res, await service.openDocument(req.user!, id(res)), req.query.view === "1");
 }
 
 export async function requests(req: Request, res: Response) {
