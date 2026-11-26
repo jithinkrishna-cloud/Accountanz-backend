@@ -12,7 +12,7 @@ const m = vi.hoisted(() => ({
   loggerError: vi.fn(),
 }));
 
-vi.mock("../../database/connection.js", () => ({ execute: m.execute }));
+
 vi.mock("../../utils/logger.js", () => ({ logger: { error: m.loggerError } }));
 vi.mock("../audit/audit.service.js", () => ({ recordAudit: m.recordAudit }));
 vi.mock("./project.repository.js", () => ({ findPrimarySpace: m.findPrimarySpace }));
@@ -25,7 +25,7 @@ vi.mock("./client-spaces.js", () => ({
 const { onEngagementActivated, onEngagementEnded, onClientTeamChanged } = await import("./client-space-hooks.js");
 
 const actor = { id: 1, role: "super_admin", email: "a@x.com" } as AuthUser;
-const conn = {} as PoolConnection;
+const conn = { query: m.execute } as unknown as PoolConnection;
 const sqls = () => m.execute.mock.calls.map((c) => c[0]);
 
 beforeEach(() => {
