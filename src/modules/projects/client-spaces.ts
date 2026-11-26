@@ -46,23 +46,25 @@ export async function ensurePrimarySpace(actor: AuthUser, clientId: number, conn
 
   const name = ((await repo.clientDisplayName(clientId, conn)) ?? `Client ${clientId}`).slice(0, 80);
   const firstAdminId = isPortalAdminRole(actor.role) ? actor.id : null;
-  const taken = (k: string) => repo.keyTaken(k, conn);
+  const tried = new Set<string>();
+  const taken = async (k: string) => tried.has(k) || (await repo.keyTaken(k, conn));
   const base = deriveSpaceKey(name);
   let key = await nextFreeKey(base, taken);
 
   for (let attempt = 0; attempt < KEY_ATTEMPTS; attempt++) {
+    tried.add(key);
     try {
       const spaceId = await repo.insertSpace({ space_key: key, name, template: "kanban", client_id: clientId } as Parameters<typeof repo.insertSpace>[0], "client_primary", actor.id, firstAdminId, conn);
       await recordAudit(actor, { action: "Workspace client space created", entityType: "ProjectSpace", entityId: spaceId, clientId, details: `${key} · ${name}` }, conn);
       return { spaceId, created: true, restored: false };
     } catch (err) {
       if (dupKey(err, "uq_project_space_primary")) {
-        const raced = await repo.findPrimarySpace(clientId, conn);
+        const raced = await repo.findPrimarySpaceLocking(clientId, conn);
         if (raced) return { spaceId: raced.id, created: false, restored: false };
         throw err;
       }
       if (!dupKey(err, "uq_project_space_key")) throw err;
-      key = await nextFreeKey(base, async (k) => k === key || (await taken(k)));
+      key = await nextFreeKey(base, taken);
     }
   }
   throw new AppError("VALIDATION_ERROR", "Could not find a free space key");

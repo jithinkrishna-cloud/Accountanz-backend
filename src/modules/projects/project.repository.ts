@@ -31,7 +31,9 @@ export async function listSpaces(userId: number, all: boolean, f: { q?: string; 
 
 export const findSpace = (userId: number, spaceId: number) => queryOne<SpaceRow>(`${SPACE_SELECT} WHERE s.id = ?`, [userId, spaceId]);
 
-export const keyTaken = async (key: string, db?: PoolConnection) => !!(await queryOne<{ id: number }>(`SELECT id FROM project_spaces WHERE space_key = ?`, [key], db));
+/** With a transaction connection this is a locking read, so it sees rows committed after the snapshot began. */
+export const keyTaken = async (key: string, db?: PoolConnection) =>
+  !!(await queryOne<{ id: number }>(`SELECT id FROM project_spaces WHERE space_key = ?${db ? " FOR SHARE" : ""}`, [key], db));
 
 export const clientExists = async (id: number) => !!(await queryOne<{ id: number }>(`SELECT id FROM clients WHERE id = ?`, [id]));
 
@@ -56,6 +58,10 @@ export async function insertSpace(input: CreateSpaceInput, kind: SpaceKind, crea
 
 export const findPrimarySpace = (clientId: number, conn: PoolConnection) =>
   queryOne<{ id: number; archived_at: Date | null }>(`SELECT id, archived_at FROM project_spaces WHERE client_id = ? AND kind = 'client_primary'`, [clientId], conn);
+
+/** Locking read: sees the latest committed row even under REPEATABLE READ (used to recover from a create race). */
+export const findPrimarySpaceLocking = (clientId: number, conn: PoolConnection) =>
+  queryOne<{ id: number; archived_at: Date | null }>(`SELECT id, archived_at FROM project_spaces WHERE client_id = ? AND kind = 'client_primary' FOR SHARE`, [clientId], conn);
 
 export const setArchived = (spaceId: number, archived: boolean, conn: PoolConnection) =>
   execute(`UPDATE project_spaces SET archived_at = ${archived ? "UTC_TIMESTAMP()" : "NULL"} WHERE id = ?`, [spaceId], conn);

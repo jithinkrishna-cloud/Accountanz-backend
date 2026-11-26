@@ -4,6 +4,7 @@ import type { AuthUser } from "../../types/auth.types.js";
 
 const m = vi.hoisted(() => ({
   findPrimarySpace: vi.fn(),
+  findPrimarySpaceLocking: vi.fn(),
   setArchived: vi.fn(),
   clientDisplayName: vi.fn(),
   insertSpace: vi.fn(),
@@ -14,6 +15,7 @@ const m = vi.hoisted(() => ({
 vi.mock("../audit/audit.service.js", () => ({ recordAudit: m.recordAudit }));
 vi.mock("./project.repository.js", () => ({
   findPrimarySpace: m.findPrimarySpace,
+  findPrimarySpaceLocking: m.findPrimarySpaceLocking,
   setArchived: m.setArchived,
   clientDisplayName: m.clientDisplayName,
   insertSpace: m.insertSpace,
@@ -88,10 +90,30 @@ describe("ensurePrimarySpace", () => {
   });
 
   it("returns the existing space when a concurrent primary wins the race", async () => {
-    m.findPrimarySpace.mockResolvedValueOnce(undefined).mockResolvedValueOnce({ id: 11, archived_at: null });
+    m.findPrimarySpace.mockResolvedValue(undefined);
+    m.findPrimarySpaceLocking.mockResolvedValue({ id: 11, archived_at: null });
     m.insertSpace.mockRejectedValue({ code: "ER_DUP_ENTRY", message: "Duplicate entry '1' for key 'project_spaces.uq_project_space_primary'" });
     expect(await cs.ensurePrimarySpace(admin, 1, conn)).toEqual({ spaceId: 11, created: false, restored: false });
+    expect(m.findPrimarySpaceLocking).toHaveBeenCalledWith(1, conn);
+    expect(m.findPrimarySpace).toHaveBeenCalledTimes(1);
     expect(m.recordAudit).not.toHaveBeenCalled();
+  });
+
+  it("rethrows a dup-primary error when the locking re-read finds nothing", async () => {
+    const err = { code: "ER_DUP_ENTRY", message: "Duplicate entry for key 'project_spaces.uq_project_space_primary'" };
+    m.findPrimarySpace.mockResolvedValue(undefined);
+    m.findPrimarySpaceLocking.mockResolvedValue(undefined);
+    m.insertSpace.mockRejectedValue(err);
+    await expect(cs.ensurePrimarySpace(admin, 1, conn)).rejects.toBe(err);
+  });
+
+  it("does not revisit keys already tried and throws when retries are exhausted", async () => {
+    m.findPrimarySpace.mockResolvedValue(undefined);
+    m.insertSpace.mockRejectedValue({ code: "ER_DUP_ENTRY", message: "for key 'project_spaces.uq_project_space_key'" });
+    await expect(cs.ensurePrimarySpace(admin, 1, conn)).rejects.toThrow();
+    const keys = m.insertSpace.mock.calls.map((c) => c[0].space_key);
+    expect(keys).toHaveLength(20);
+    expect(new Set(keys).size).toBe(20);
   });
 
   it("retries with the next free key on a key collision", async () => {
