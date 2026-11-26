@@ -164,3 +164,27 @@ export async function agreementDownload(id: number) {
   if (!row.agreement_file_path) throw AppError.notFound("Agreement");
   return { file: await openFile(row.agreement_file_path), name: row.agreement_file_name ?? "agreement" };
 }
+
+/**
+ * Admin shortcut: a draft, sent or accepted engagement goes active straight away, skipping the remaining steps.
+ * Like direct onboarding, it needs no signed agreement and issues no first invoice (billing starts with the
+ * regular billing run). The client becomes active and its workspace is provisioned.
+ */
+export async function activateNow(actor: AuthUser, id: number) {
+  await withTransaction(async (conn) => {
+    const e = await repo.lockEngagement(id, conn);
+    if (!e) throw AppError.notFound("Engagement");
+    if (e.status === "active") throw AppError.conflict("This engagement is already active");
+    if (e.status === "ended") throw AppError.conflict("An ended engagement can't be activated");
+    const otherOpen = await repo.findOpenEngagement(e.client_id, conn, e.id);
+    if (otherOpen?.status === "active") throw AppError.conflict(`This client already has an active engagement (#${otherOpen.id})`);
+    const client = await clientRepo.findClientById(e.client_id, conn);
+    if (client && (client.status === "lead" || client.status === "onboarding")) await clientRepo.updateClient(e.client_id, { status: "active" }, conn);
+    if (!e.start_date) await repo.updateEngagement(e.id, { start_date: new Date().toISOString().slice(0, 10) }, conn);
+    await repo.setStatus(id, "active", conn);
+    await recordAudit(actor, { action: "Engagement status changed", entityType: "Engagement", entityId: id, clientId: e.client_id, details: `${humanize(e.status)} → Active (activated now, no agreement or first invoice)` }, conn);
+    await syncCaseWithEngagement(actor, e.client_id, "team", conn);
+    await onEngagementActivated(actor, e.client_id, conn);
+  });
+  return getEngagement(id);
+}

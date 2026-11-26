@@ -38,3 +38,7 @@ export async function downloadAgreement(_req: Request, res: Response) {
   if (Number.isFinite(file.size)) res.setHeader("Content-Length", String(file.size));
   await pipeline(file.stream, res);
 }
+
+export async function activateNow(req: Request, res: Response) {
+  res.json(await service.activateNow(req.user!, id(res)));
+}

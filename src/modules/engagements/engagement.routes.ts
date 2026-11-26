@@ -15,6 +15,7 @@ engagementRoutes.post("/", validate({ body: engagementBodySchema }), controller.
 engagementRoutes.get("/:id", validate({ params: idParam }), controller.get);
 engagementRoutes.patch("/:id", validate({ params: idParam, body: engagementUpdateSchema }), controller.update);
 engagementRoutes.post("/:id/status", validate({ params: idParam, body: statusBodySchema }), controller.changeStatus);
+engagementRoutes.post("/:id/activate-now", validate({ params: idParam }), controller.activateNow);
 engagementRoutes.post("/:id/agreement", validate({ params: idParam }), agreementUpload, controller.uploadAgreement);
 engagementRoutes.get("/:id/agreement", validate({ params: idParam }), controller.downloadAgreement);
 
