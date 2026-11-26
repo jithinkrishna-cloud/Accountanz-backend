@@ -48,9 +48,9 @@ export async function insertDocument(input: StaffUploadInput, file: { key: strin
 }
 
 // ── Requests ──
-const REQUEST_FROM = `FROM document_requests r JOIN clients c ON c.id = r.client_id LEFT JOIN users u ON u.id = r.requested_by`;
+const REQUEST_FROM = `FROM document_requests r JOIN clients c ON c.id = r.client_id LEFT JOIN users u ON u.id = r.requested_by LEFT JOIN tasks tk ON tk.id = r.task_id`;
 const REQUEST_COLUMNS = `r.id, r.client_id, COALESCE(c.trade_name, c.legal_name) AS client_name, r.description,
-       u.email AS requested_by_email, r.due_date, r.period, r.status, r.task_id, r.folder_id, r.created_at`;
+       u.email AS requested_by_email, r.due_date, r.period, r.status, r.task_id, tk.title AS task_title, r.folder_id, r.created_at`;
 
 export async function listRequests(q: RequestListQuery, scope: Scope): Promise<Paged<DocumentRequestRow>> {
   const where = ["r.status = ?", scope.sql];
@@ -84,3 +84,6 @@ export async function cancelRequest(id: number, conn: PoolConnection) {
 
 export const taskBelongsToClient = async (taskId: number, clientId: number) =>
   !!(await queryOne<{ id: number }>(`SELECT id FROM tasks WHERE id = ? AND client_id = ?`, [taskId, clientId]));
+
+export const findTaskForRequest = (taskId: number, clientId: number) =>
+  queryOne<{ id: number; title: string; period: string }>(`SELECT id, title, period FROM tasks WHERE id = ? AND client_id = ?`, [taskId, clientId]);

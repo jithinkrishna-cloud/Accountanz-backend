@@ -91,10 +91,13 @@ export const listRequests = (actor: AuthUser, q: RequestListQuery) => repo.listR
 
 export async function createRequest(actor: AuthUser, input: CreateRequestInput) {
   await requireClientAccess(actor, input.client_id);
-  await assertTaskOnClient(input.task_id, input.client_id);
+  const task = await repo.findTaskForRequest(input.task_id, input.client_id);
+  if (!task) throw new AppError("VALIDATION_ERROR", "That task belongs to another client", { fieldErrors: { task_id: ["Choose one of this client's tasks"] } });
+  // The request's period defaults to its task's period.
+  if (!input.period) input = { ...input, period: task.period };
   const id = await withTransaction(async (conn) => {
-    // Files sent for the request land in "<Mon YYYY> / <description>" (shared with the client and the team).
-    const folderId = await createRequestFolder({ clientId: input.client_id, period: input.period, description: input.description, userId: actor.id }, conn);
+    // Files sent for the request land in "<Mon YYYY> / <task> / <description>" (shared with the client and the team).
+    const folderId = await createRequestFolder({ clientId: input.client_id, period: input.period, taskTitle: task.title, description: input.description, userId: actor.id }, conn);
     const requestId = await repo.insertRequest(input, actor.id, folderId, conn);
     await recordAudit(actor, { action: "Document requested", entityType: "DocumentRequest", entityId: requestId, clientId: input.client_id, details: input.description }, conn);
     return requestId;

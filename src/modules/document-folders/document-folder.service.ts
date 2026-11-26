@@ -272,13 +272,18 @@ async function freeSiblingName(clientId: number, parentId: number, base: string,
 }
 
 /**
- * Makes the folder files for a new document request land in: "<Mon YYYY>" (top level, reused when it exists) /
- * "<description>". Both are staff folders, so the client and the client's team see them. Returns the request folder.
+ * Makes the folder files for a new document request land in: "<Mon YYYY>" (top level) / "<task>" / "<description>".
+ * The month and task folders are reused when they exist, so every request for a task sits together. All are staff
+ * folders, so the client and the client's team see them. Returns the request folder.
  */
-export async function createRequestFolder(r: { clientId: number; period: string | null; description: string; userId: number }, conn: PoolConnection) {
-  const monthName = monthFolderName(r.period);
-  const month = await repo.siblingNamed(r.clientId, null, monthName, conn);
-  const monthId = month?.id ?? (await repo.insertFolder({ clientId: r.clientId, parentId: null, name: monthName, userId: r.userId, staff: true }, conn));
-  const name = await freeSiblingName(r.clientId, monthId, requestFolderName(r.description), conn);
-  return repo.insertFolder({ clientId: r.clientId, parentId: monthId, name, userId: r.userId, staff: true }, conn);
+export async function createRequestFolder(
+  r: { clientId: number; period: string | null; taskTitle?: string | null; description: string; userId: number },
+  conn: PoolConnection,
+) {
+  const reuse = async (parentId: number | null, name: string) =>
+    (await repo.siblingNamed(r.clientId, parentId, name, conn))?.id ?? (await repo.insertFolder({ clientId: r.clientId, parentId, name, userId: r.userId, staff: true }, conn));
+  const monthId = await reuse(null, monthFolderName(r.period));
+  const parentId = r.taskTitle ? await reuse(monthId, requestFolderName(r.taskTitle)) : monthId;
+  const name = await freeSiblingName(r.clientId, parentId, requestFolderName(r.description), conn);
+  return repo.insertFolder({ clientId: r.clientId, parentId, name, userId: r.userId, staff: true }, conn);
 }

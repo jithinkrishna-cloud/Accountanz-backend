@@ -8,6 +8,7 @@ const m = vi.hoisted(() => ({
   insertDocument: vi.fn(),
   findDocument: vi.fn(),
   taskBelongsToClient: vi.fn(),
+  findTaskForRequest: vi.fn(),
   createRequestFolder: vi.fn(),
   assertStaffFolder: vi.fn(),
   moveDocument: vi.fn(),
@@ -38,6 +39,7 @@ vi.mock("./document.repository.js", () => ({
   insertDocument: m.insertDocument,
   findDocument: m.findDocument,
   taskBelongsToClient: m.taskBelongsToClient,
+  findTaskForRequest: m.findTaskForRequest,
 }));
 
 const service = await import("./document.service.js");
@@ -55,10 +57,20 @@ describe("document requests get a folder", () => {
   it("creates the request folder in the same transaction and saves it on the request", async () => {
     m.createRequestFolder.mockResolvedValue(41);
     m.insertRequest.mockResolvedValue(90);
-    const input = { client_id: 3, description: "Bank statements", period: "2026-11", due_date: null, task_id: null };
+    m.findTaskForRequest.mockResolvedValue({ id: 9, title: "Bank reconciliation", period: "2026-11" });
+    const input = { client_id: 3, description: "Bank statements", period: "2026-11", due_date: null, task_id: 9 };
     await service.createRequest(accountant, input);
-    expect(m.createRequestFolder).toHaveBeenCalledWith({ clientId: 3, period: "2026-11", description: "Bank statements", userId: 7 }, m.conn);
+    expect(m.createRequestFolder).toHaveBeenCalledWith({ clientId: 3, period: "2026-11", taskTitle: "Bank reconciliation", description: "Bank statements", userId: 7 }, m.conn);
     expect(m.insertRequest).toHaveBeenCalledWith(input, 7, 41, m.conn);
+  });
+
+  it("refuses a request whose task isn't this client's, and takes the task's period when none is given", async () => {
+    m.findTaskForRequest.mockResolvedValueOnce(undefined);
+    await expect(service.createRequest(accountant, { client_id: 3, description: "Bank statements", period: null, due_date: null, task_id: 99 })).rejects.toThrow("another client");
+    m.findTaskForRequest.mockResolvedValueOnce({ id: 9, title: "GST review", period: "2026-10" });
+    m.createRequestFolder.mockResolvedValue(42);
+    await service.createRequest(accountant, { client_id: 3, description: "Sales invoices", period: null, due_date: null, task_id: 9 });
+    expect(m.createRequestFolder).toHaveBeenLastCalledWith(expect.objectContaining({ period: "2026-10", taskTitle: "GST review" }), m.conn);
   });
 });
 

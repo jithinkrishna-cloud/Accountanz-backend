@@ -27,7 +27,8 @@ export const createRequestSchema = z.object({
   description: z.string().trim().min(3, "Describe what you need").max(500),
   period: periodSchema.nullish().transform((v) => v ?? null),
   due_date: z.iso.date("Use a valid date").nullish().transform((v) => v ?? null),
-  task_id: z.coerce.number().int().positive().nullish().transform((v) => v ?? null),
+  /** Requests are always for a task: the task decides the folder and tells the client which job it is for. */
+  task_id: z.coerce.number({ error: "Pick the task this is for" }).int().positive("Pick the task this is for"),
 });
 
 /** Staff upload (multipart fields), e.g. a document the client sent by e-mail or WhatsApp. */

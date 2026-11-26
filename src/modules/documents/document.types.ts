@@ -37,6 +37,7 @@ export interface DocumentRequestRow {
   period: string | null;
   status: RequestStatus;
   task_id: number | null;
+  task_title: string | null;
   /** The request's folder ("Nov 2026 / Bank statements"); null when it was deleted or predates request folders. */
   folder_id: number | null;
   created_at: string;
