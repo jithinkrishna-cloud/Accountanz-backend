@@ -1,11 +1,15 @@
 import { z } from "zod";
 import { SPACE_ROLES, STATUS_CATEGORIES, TEMPLATES } from "./project.types.js";
 
+/** Keys that collide with fixed routes under /api/projects (e.g. GET /lookup/:key). */
+export const RESERVED_SPACE_KEYS: ReadonlySet<string> = new Set(["LOOKUP"]);
+
 export const spaceKeySchema = z
   .string()
   .trim()
   .toUpperCase()
-  .regex(/^[A-Z][A-Z0-9]{1,9}$/, "Use 2–10 letters or digits, starting with a letter");
+  .regex(/^[A-Z][A-Z0-9]{1,9}$/, "Use 2–10 letters or digits, starting with a letter")
+  .refine((k) => !RESERVED_SPACE_KEYS.has(k), "This key is reserved; choose another key");
 
 const nullableId = z.coerce.number().int().positive().nullable().optional();
 const optionalDescription = z.string().trim().max(1000).nullable().optional().transform((v) => v || null);

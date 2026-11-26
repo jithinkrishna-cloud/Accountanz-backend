@@ -23,6 +23,7 @@ vi.mock("./project.repository.js", () => ({
 }));
 
 const cs = await import("./client-spaces.js");
+const { spaceKeySchema } = await import("./project.validation.js");
 
 const conn = { tag: "tx" } as unknown as PoolConnection;
 const admin = { id: 7, role: "super_admin" } as unknown as AuthUser;
@@ -39,6 +40,30 @@ describe("deriveSpaceKey", () => {
     expect(cs.deriveSpaceKey("Green Leaf Pvt Ltd")).toBe("GLPL");
     expect(cs.deriveSpaceKey("X")).toBe("XX");
     expect(cs.deriveSpaceKey("123 Traders")).toBe("P1T");
+  });
+});
+
+describe("reserved space keys", () => {
+  it("spaceKeySchema rejects LOOKUP with a clear message, in any case", () => {
+    for (const k of ["LOOKUP", "lookup"]) {
+      const r = spaceKeySchema.safeParse(k);
+      expect(r.success).toBe(false);
+      expect(r.error?.issues[0].message).toBe("This key is reserved; choose another key");
+    }
+    expect(spaceKeySchema.parse("LOOKUP2")).toBe("LOOKUP2");
+  });
+
+  it("nextFreeKey skips LOOKUP even when it is not taken", async () => {
+    expect(await cs.nextFreeKey("LOOKUP", async () => false)).toBe("LOOKUP2");
+  });
+
+  it("a client named to derive LOOKUP gets LOOKUP2 as its primary key", async () => {
+    m.findPrimarySpace.mockResolvedValue(null);
+    m.clientDisplayName.mockResolvedValue("Lal Om Om Kumar Unit Pvt");
+    m.insertSpace.mockResolvedValue(40);
+    expect(cs.deriveSpaceKey("Lal Om Om Kumar Unit Pvt")).toBe("LOOKUP");
+    await cs.ensurePrimarySpace(admin, 3, conn);
+    expect(m.insertSpace.mock.calls[0][0]).toMatchObject({ space_key: "LOOKUP2" });
   });
 });
 

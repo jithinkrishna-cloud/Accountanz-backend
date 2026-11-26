@@ -5,6 +5,7 @@ import { recordAudit } from "../audit/audit.service.js";
 import { notifyWorkspaceSyncIssues } from "../notifications/notification.service.js";
 import { effectiveEntitlement, isPortalAdminRole } from "./entitlement.js";
 import * as repo from "./project.repository.js";
+import { RESERVED_SPACE_KEYS } from "./project.validation.js";
 import type { SyncIssueReason } from "./project.types.js";
 
 export type { SyncIssueReason };
@@ -23,13 +24,14 @@ export function deriveSpaceKey(name: string): string {
   return key.padEnd(2, "X");
 }
 
-/** `base`, then `base2`, `base3`, ... with `base` truncated so the result fits in 10 characters. */
+/** `base`, then `base2`, `base3`, ... with `base` truncated so the result fits in 10 characters; reserved keys are skipped. */
 export async function nextFreeKey(base: string, taken: (k: string) => Promise<boolean>): Promise<string> {
-  if (!(await taken(base))) return base;
+  const free = async (k: string) => !RESERVED_SPACE_KEYS.has(k) && !(await taken(k));
+  if (await free(base)) return base;
   for (let n = 2; n < 10_000; n++) {
     const suffix = String(n);
     const candidate = `${base.slice(0, MAX_KEY - suffix.length)}${suffix}`;
-    if (!(await taken(candidate))) return candidate;
+    if (await free(candidate)) return candidate;
   }
   throw new AppError("VALIDATION_ERROR", "Could not find a free space key");
 }
