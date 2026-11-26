@@ -39,7 +39,6 @@ export const business = async (_req: Request, res: Response) => void res.json(aw
 export const team = async (_req: Request, res: Response) => void res.json({ items: await service.getTeam(ctx(res)) });
 export const teamMember = async (_req: Request, res: Response) => void res.json(await service.getMemberOverview(ctx(res), idOf(res)));
 export const software = async (_req: Request, res: Response) => void res.json({ items: await service.getSoftware(ctx(res)) });
-export const disconnectJournl = async (req: Request, res: Response) => void res.json({ items: await service.disconnectJournl(req.user!, ctx(res)) });
 
 export const documents = async (_req: Request, res: Response) => void res.json({ items: await service.getDocuments(ctx(res)) });
 export const requests = async (_req: Request, res: Response) => void res.json({ items: await service.getRequests(ctx(res)) });

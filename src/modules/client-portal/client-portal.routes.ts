@@ -2,7 +2,6 @@ import { Router, type RequestHandler } from "express";
 import { authenticate } from "../../middleware/authenticate.js";
 import { authorize } from "../../middleware/authorize.js";
 import { documentUpload, multipartFields } from "../../middleware/upload.js";
-import { journlEnabled } from "../../middleware/journl-enabled.js";
 import { idParam, validate, type IdParam } from "../../middleware/validate.js";
 import * as packageChanges from "../package-changes/package-change.service.js";
 import { packageChangeRequestSchema } from "../package-changes/package-change.validation.js";
@@ -13,8 +12,6 @@ import { requireContext } from "./client-portal.service.js";
 import { exploreRoutes } from "../accountant-requests/accountant-request.routes.js";
 import { messageParam } from "../communication/communication.validation.js";
 import { approvalDecisionSchema, clientTaskSchema, meetingRequestSchema, newThreadSchema, portalClientUpdateSchema, replySchema, settingsSchema, tasksQuerySchema, uploadMetaSchema } from "./client-portal.validation.js";
-import { activity as jlActivity, catalog as jlCatalog, team as jlTeam, setModule as jlSetModule } from "./journl-client-permission.controller.js";
-import { modulePermissionBody, modulePermissionParams } from "../journl-permissions/permission.validation.js";
 import { bizpoleOwnerRoutes } from "../integrations/bizpole/bizpole.routes.js";
 import { startInvoicePayment } from "../payments/easebuzz/easebuzz.service.js";
 import { attachDocumentSchema, createFolderSchema, moveDocumentSchema, renameFolderSchema, shareFolderSchema } from "../document-folders/document-folder.validation.js";
@@ -38,7 +35,6 @@ clientPortalRoutes.get("/business", c.business);
 clientPortalRoutes.get("/team", c.team);
 clientPortalRoutes.get("/team/:id", validate({ params: idParam }), c.teamMember);
 clientPortalRoutes.get("/software", c.software);
-clientPortalRoutes.post("/software/journl/disconnect", journlEnabled, c.disconnectJournl);
 clientPortalRoutes.use("/software/bizpole", bizpoleOwnerRoutes);
 clientPortalRoutes.get("/documents", c.documents);
 clientPortalRoutes.post("/documents", documentUpload(), multipartFields(uploadMetaSchema), c.upload);
@@ -90,12 +86,3 @@ clientPortalRoutes.post("/package-changes/:id/withdraw", validate({ params: idPa
 clientPortalRoutes.get("/settings", c.settings);
 clientPortalRoutes.patch("/settings", validate({ body: settingsSchema }), c.updateSettings);
 clientPortalRoutes.patch("/client", validate({ body: portalClientUpdateSchema }), c.updateClient);
-clientPortalRoutes.use("/journl-permissions", journlEnabled);
-clientPortalRoutes.get("/journl-permissions/catalog", jlCatalog);
-clientPortalRoutes.get("/journl-permissions/team", jlTeam);
-clientPortalRoutes.get("/journl-permissions/assignments/:id/activity", validate({ params: idParam }), jlActivity);
-clientPortalRoutes.put(
-  "/journl-permissions/assignments/:id/modules/:moduleKey",
-  validate({ params: modulePermissionParams, body: modulePermissionBody }),
-  jlSetModule,
-);
