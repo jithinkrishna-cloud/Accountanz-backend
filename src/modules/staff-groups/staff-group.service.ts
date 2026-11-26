@@ -7,6 +7,7 @@ import { recordAudit } from "../audit/audit.service.js";
 import * as journlAccess from "../journl-access-tasks/journl-access-task.service.js";
 import * as assignmentRepo from "../assignments/assignment.repository.js";
 import { findClientById } from "../clients/client.repository.js";
+import { onClientTeamChanged } from "../projects/client-space-hooks.js";
 import * as repo from "./staff-group.repository.js";
 import type { AssignGroupResult } from "./staff-group.types.js";
 import type { AssignGroupInput, StaffGroupInput } from "./staff-group.validation.js";
@@ -128,6 +129,7 @@ export async function assignGroup(actor: AuthUser, id: number, input: AssignGrou
     if (!result.created.length) {
       throw AppError.conflict(`Nobody was assigned. ${result.skipped.map((s) => `${s.full_name} is ${s.reason}`).join("; ")}.`);
     }
+    await onClientTeamChanged(actor, client.id, conn);
     await recordAudit(
       actor,
       { action: "Staff group assigned", entityType: "StaffGroup", entityId: id, clientId: client.id, details: `${group.name} → ${clientName}: ${result.created.length} assigned, ${result.skipped.length} skipped` },

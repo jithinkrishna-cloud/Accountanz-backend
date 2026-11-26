@@ -8,6 +8,7 @@ import * as engagementRepo from "../engagements/engagement.repository.js";
 import { clientProposal } from "../onboarding/onboarding.repository.js";
 import { syncCaseWithEngagement } from "../onboarding/onboarding.sync.js";
 import { findPackageById } from "../packages/package.repository.js";
+import { onClientTeamChanged } from "../projects/client-space-hooks.js";
 import * as repo from "./package-change.repository.js";
 import type { PackageChangeDecisionInput, PackageChangeRequestInput, StaffPackageChangeInput } from "./package-change.validation.js";
 
@@ -33,6 +34,7 @@ async function applyChange(actor: AuthUser, engagementId: number, toPackageId: n
   if (e.package_id === toPackageId && monthlyFee == null) throw fieldError("package_id", "The engagement is already on this package");
 
   await engagementRepo.updateEngagement(e.id, { package_id: toPackageId, monthly_fee: monthlyFee }, conn);
+  await onClientTeamChanged(actor, e.client_id, conn);
   let effect = "";
   if (e.status === "sent" || e.status === "accepted") {
     await engagementRepo.setStatus(e.id, "draft", conn);

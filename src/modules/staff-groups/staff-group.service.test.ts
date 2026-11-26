@@ -26,6 +26,7 @@ const m = vi.hoisted(() => ({
 vi.mock("../../database/connection.js", () => ({ withTransaction: (fn: (c: unknown) => unknown) => fn(m.conn) }));
 vi.mock("../audit/audit.service.js", () => ({ recordAudit: m.recordAudit }));
 vi.mock("../journl-access-tasks/journl-access-task.service.js", () => ({ onAssignmentCreated: m.onAssignmentCreated }));
+vi.mock("../projects/client-space-hooks.js", () => ({ onClientTeamChanged: vi.fn() }));
 vi.mock("../clients/client.repository.js", () => ({ findClientById: m.findClientById }));
 vi.mock("../assignments/assignment.repository.js", () => ({
   findActiveDuplicate: m.findActiveDuplicate,

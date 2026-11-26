@@ -10,6 +10,7 @@ import { notifyInvoiceIssued } from "../notifications/notification.service.js";
 import { findPackageById } from "../packages/package.repository.js";
 import { syncCaseWithEngagement } from "../onboarding/onboarding.sync.js";
 import * as onboardingRepo from "../onboarding/onboarding.repository.js";
+import { onEngagementActivated, onEngagementEnded } from "../projects/client-space-hooks.js";
 import * as repo from "./engagement.repository.js";
 import { ENGAGEMENT_TRANSITIONS } from "./engagement.types.js";
 import type { EngagementInput, EngagementListQuery, EngagementUpdateInput, StatusInput } from "./engagement.validation.js";
@@ -98,6 +99,8 @@ export async function changeStatus(actor: AuthUser, id: number, input: StatusInp
     }
 
     await repo.setStatus(id, input.to, conn);
+    if (input.to === "active") await onEngagementActivated(actor, e.client_id, conn);
+    else if (input.to === "ended") await onEngagementEnded(actor, e.client_id, conn);
     await recordAudit(actor, { action: "Engagement status changed", entityType: "Engagement", entityId: id, clientId: e.client_id, details: `${humanize(e.status)} → ${humanize(input.to)}` }, conn);
     // Accepted or active on the engagement means accepted in onboarding too.
     if (input.to === "accepted" || input.to === "active") await syncCaseWithEngagement(actor, e.client_id, "team", conn);
