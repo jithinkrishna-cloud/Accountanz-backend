@@ -1,8 +1,10 @@
 import { pipeline } from "node:stream/promises";
 import type { Request, Response } from "express";
 import type { IdParam } from "../../middleware/validate.js";
+import * as folderService from "../document-folders/document-folder.service.js";
+import type { MoveDocumentInput, RenameFolderInput } from "../document-folders/document-folder.validation.js";
 import * as service from "./document.service.js";
-import type { CreateRequestInput, DocumentListQuery, DocumentStatusInput, RequestListQuery, StaffUploadInput } from "./document.validation.js";
+import type { CreateRequestInput, DocumentListQuery, DocumentStatusInput, RequestListQuery, StaffCreateFolderInput, StaffUploadInput } from "./document.validation.js";
 
 const id = (res: Response) => (res.locals.params as IdParam).id;
 
@@ -37,4 +39,26 @@ export async function createRequest(req: Request, res: Response) {
 
 export async function cancelRequest(req: Request, res: Response) {
   res.json(await service.cancelRequest(req.user!, id(res)));
+}
+
+export async function moveToFolder(req: Request, res: Response) {
+  res.json(await service.moveToFolder(req.user!, id(res), req.body as MoveDocumentInput));
+}
+
+// Document Centre folders for one client (shared tree: staff folders plus client folders shared with the user).
+export async function folders(req: Request, res: Response) {
+  res.json({ items: await folderService.listStaffFolders(req.user!, (res.locals.query as { client_id: number }).client_id) });
+}
+
+export async function createFolder(req: Request, res: Response) {
+  res.status(201).json(await folderService.createStaffFolder(req.user!, req.body as StaffCreateFolderInput));
+}
+
+export async function renameFolder(req: Request, res: Response) {
+  res.json(await folderService.renameStaffFolder(req.user!, id(res), req.body as RenameFolderInput));
+}
+
+export async function deleteFolder(req: Request, res: Response) {
+  await folderService.deleteStaffFolder(req.user!, id(res));
+  res.status(204).end();
 }

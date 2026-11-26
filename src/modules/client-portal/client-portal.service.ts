@@ -128,7 +128,7 @@ export async function getBilling(ctx: ClientContext) {
 
 /**
  * Stores an uploaded file for the company. Uploading against an open request fulfils it and
- * tells the person who asked. The stored file is removed again if the database write fails.
+ * tells the person who asked; unless another folder was picked, the file goes into the request's folder. The stored file is removed again if the database write fails.
  */
 export async function uploadDocument(actor: AuthUser, ctx: ClientContext, meta: UploadMeta, file: Express.Multer.File) {
   await assertUploadFolder(ctx.clientId, meta.folder_id);
@@ -138,7 +138,7 @@ export async function uploadDocument(actor: AuthUser, ctx: ClientContext, meta: 
       const request = meta.request_id ? await repo.lockOpenRequest(ctx.clientId, meta.request_id, conn) : null;
       if (meta.request_id && !request) throw new AppError("CONFLICT", "That request is no longer open");
       const id = await repo.insertDocument(
-        { clientId: ctx.clientId, requestId: request?.id ?? null, folderId: meta.folder_id ?? null, userId: actor.id, category: meta.category, period: meta.period ?? request?.period ?? null, path: key, name: file.originalname, mime: file.mimetype, size: file.size },
+        { clientId: ctx.clientId, requestId: request?.id ?? null, folderId: meta.folder_id ?? request?.folder_id ?? null, userId: actor.id, category: meta.category, period: meta.period ?? request?.period ?? null, path: key, name: file.originalname, mime: file.mimetype, size: file.size },
         conn,
       );
       if (request) await repo.fulfilRequest(request.id, conn);
@@ -156,7 +156,8 @@ export async function uploadDocument(actor: AuthUser, ctx: ClientContext, meta: 
 /**
  * Answers a document request with a file already in the Document Centre (no second upload). The file is linked to
  * the request, so the team can open it even if it sits in a private folder; the request is marked fulfilled. A file
- * already sent for another request is linked as a copy of the same stored file (client documents are never deleted).
+ * already sent for another request is linked as a copy of the same stored file (client documents are never deleted);
+ * the copy goes into this request's folder. A linked file stays where the client filed it.
  */
 export async function attachExistingDocument(actor: AuthUser, ctx: ClientContext, requestId: number, documentId: number) {
   const result = await withTransaction(async (conn) => {
@@ -169,7 +170,7 @@ export async function attachExistingDocument(actor: AuthUser, ctx: ClientContext
       await repo.linkDocumentToRequest(doc.id, request.id, conn);
     } else {
       id = await repo.insertDocument(
-        { clientId: ctx.clientId, requestId: request.id, folderId: doc.folder_id, userId: actor.id, category: doc.category, period: doc.period ?? request.period, path: doc.file_path, name: doc.file_name, mime: doc.mime_type ?? "application/octet-stream", size: doc.size_bytes ?? 0 },
+        { clientId: ctx.clientId, requestId: request.id, folderId: request.folder_id ?? doc.folder_id, userId: actor.id, category: doc.category, period: doc.period ?? request.period, path: doc.file_path, name: doc.file_name, mime: doc.mime_type ?? "application/octet-stream", size: doc.size_bytes ?? 0 },
         conn,
       );
     }

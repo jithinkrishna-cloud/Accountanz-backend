@@ -1,7 +1,8 @@
+import type { PoolConnection } from "mysql2/promise";
 import { withTransaction } from "../../database/connection.js";
 import type { AuthUser } from "../../types/auth.types.js";
 import { AppError } from "../../utils/app-error.js";
-import { activeTeamRoles, isAdmin } from "../access/client-access.js";
+import { activeTeamRoles, isAdmin, requireClientAccess } from "../access/client-access.js";
 import { recordAudit } from "../audit/audit.service.js";
 import { notifyShared } from "../notifications/notification.service.js";
 import * as repo from "./document-folder.repository.js";
@@ -37,7 +38,8 @@ export async function listFolders(clientId: number) {
 /**
  * Files the client uploads are private to the client until shared. Admins see every document. Accountants (already
  * limited to their clients by clientScope) see: files the team uploaded, files sent for a team request, files shared
- * with them directly, and files in a folder shared with them (or under one). Returns a predicate over the alias.
+ * with them directly, files in a staff folder (shared tree, any depth below it) and files in a folder shared with
+ * them (or under one). Returns a predicate over the alias.
  */
 export function documentVisibility(actor: AuthUser, alias = "d"): { sql: string; params: number[] } {
   if (isAdmin(actor)) return { sql: "1 = 1", params: [] };
@@ -45,7 +47,7 @@ export function documentVisibility(actor: AuthUser, alias = "d"): { sql: string;
     sql: `(${alias}.request_id IS NOT NULL
            OR ${alias}.uploaded_by IN (SELECT su.id FROM users su WHERE su.portal_role NOT IN ('client_owner', 'client_member'))
            OR ${alias}.id IN (SELECT ds.document_id FROM document_shares ds WHERE ds.user_id = ?)
-           OR ${alias}.folder_id IN (${repo.SHARED_FOLDERS_SQL}))`,
+           OR ${alias}.folder_id IN (${repo.VISIBLE_FOLDERS_SQL}))`,
     params: [actor.id, actor.id],
   };
 }
@@ -54,7 +56,7 @@ export function documentVisibility(actor: AuthUser, alias = "d"): { sql: string;
 export async function canSeeDocument(actor: AuthUser, doc: { id: number; folder_id: number | null; request_id: number | null; from_client: 0 | 1 | boolean }) {
   if (isAdmin(actor) || doc.request_id !== null || !doc.from_client) return true;
   if ((await repo.documentShareIds(doc.id)).includes(actor.id)) return true;
-  return doc.folder_id !== null && (await repo.sharedFolderIds(actor.id)).includes(doc.folder_id);
+  return doc.folder_id !== null && (await repo.visibleFolderIds(actor.id)).includes(doc.folder_id);
 }
 
 // ───────────── Sharing ─────────────
@@ -97,6 +99,7 @@ export async function shareDocument(actor: AuthUser, client: { clientId: number;
  */
 export async function shareFolder(actor: AuthUser, client: { clientId: number; clientName: string }, id: number, userIds: number[]) {
   const folder = await requireFolder(client.clientId, id);
+  if (folder.staff_folder) throw AppError.conflict("Your accounting team made this folder, so they can already see it.");
   const wanted = [...new Set(userIds)];
   await assertTeam(client.clientId, wanted);
   const added = await withTransaction(async (conn) => {
@@ -127,19 +130,30 @@ async function requireFolder(clientId: number, id: number) {
   return folder;
 }
 
-export async function createFolder(actor: AuthUser, clientId: number, input: CreateFolderInput) {
+/**
+ * Who may rename or delete a folder: staff only their team's folders (staff folders), the client only its own.
+ * Staff folders are part of the shared tree, so the client can add subfolders and files there but not remove them.
+ */
+function assertManageable(folder: repo.FolderRow, staff: boolean) {
+  if (staff && !folder.staff_folder) throw AppError.forbidden("This is the client's own folder. Only the client can rename or delete it.");
+  if (!staff && folder.staff_folder) throw AppError.forbidden("Your accounting team made this folder. Ask them to rename or remove it.");
+}
+
+/** `staff` = created by the accounting team: visible to the client and the client's team. */
+export async function createFolder(actor: AuthUser, clientId: number, input: CreateFolderInput, opts: { staff?: boolean } = {}) {
   if (input.parent_id) await requireFolder(clientId, input.parent_id);
   const id = await withTransaction(async (conn) => {
     if (await repo.siblingNamed(clientId, input.parent_id, input.name, conn)) throw nameTaken();
-    const newId = await repo.insertFolder({ clientId, parentId: input.parent_id, name: input.name, userId: actor.id }, conn);
+    const newId = await repo.insertFolder({ clientId, parentId: input.parent_id, name: input.name, userId: actor.id, staff: !!opts.staff }, conn);
     await recordAudit(actor, { action: "Folder created", entityType: "DocumentFolder", entityId: newId, clientId, details: input.name }, conn);
     return newId;
   });
   return (await repo.findFolder(clientId, id))!;
 }
 
-export async function renameFolder(actor: AuthUser, clientId: number, id: number, input: RenameFolderInput) {
+export async function renameFolder(actor: AuthUser, clientId: number, id: number, input: RenameFolderInput, opts: { staff?: boolean } = {}) {
   const folder = await requireFolder(clientId, id);
+  assertManageable(folder, !!opts.staff);
   if (folder.name === input.name) return folder;
   await withTransaction(async (conn) => {
     const clash = await repo.siblingNamed(clientId, folder.parent_id, input.name, conn);
@@ -151,8 +165,9 @@ export async function renameFolder(actor: AuthUser, clientId: number, id: number
 }
 
 /** Only empty folders: removing a folder never deletes files. */
-export async function deleteFolder(actor: AuthUser, clientId: number, id: number) {
+export async function deleteFolder(actor: AuthUser, clientId: number, id: number, opts: { staff?: boolean } = {}) {
   const folder = await requireFolder(clientId, id);
+  assertManageable(folder, !!opts.staff);
   await withTransaction(async (conn) => {
     const inside = await repo.folderContents(id, conn);
     if (inside.folders || inside.files) {
@@ -177,4 +192,93 @@ export async function moveDocument(actor: AuthUser, clientId: number, documentId
     await repo.moveDocument(clientId, documentId, target?.id ?? null, conn);
     await recordAudit(actor, { action: "Document moved", entityType: "Document", entityId: documentId, clientId, details: `${doc.file_name} → ${target?.name ?? "top level"}` }, conn);
   });
+}
+
+// ───────────── Staff side (admin and team portals) ─────────────
+
+/** Folder ids this staff member can see (null = every folder: admins). */
+const staffVisibleIds = async (actor: AuthUser) => (isAdmin(actor) ? null : new Set(await repo.visibleFolderIds(actor.id)));
+
+/** A folder of the client that this staff member can see; a hidden client folder answers like a missing one. */
+export async function requireStaffFolder(actor: AuthUser, clientId: number, id: number) {
+  const folder = await requireFolder(clientId, id);
+  const visible = await staffVisibleIds(actor);
+  if (visible && !visible.has(id)) throw AppError.notFound("Folder");
+  return folder;
+}
+
+/** Checks a staff upload or move target (null = top level). */
+export async function assertStaffFolder(actor: AuthUser, clientId: number, folderId: number | null | undefined) {
+  if (folderId) await requireStaffFolder(actor, clientId, folderId);
+}
+
+/** The client's folders this staff member may see: admins all; others staff folders plus folders shared with them. */
+export async function listStaffFolders(actor: AuthUser, clientId: number) {
+  await requireClientAccess(actor, clientId);
+  const [folders, visible] = await Promise.all([listFolders(clientId), staffVisibleIds(actor)]);
+  return visible ? folders.filter((f) => visible.has(f.id)) : folders;
+}
+
+export async function createStaffFolder(actor: AuthUser, input: CreateFolderInput & { client_id: number }) {
+  await requireClientAccess(actor, input.client_id);
+  if (input.parent_id) await requireStaffFolder(actor, input.client_id, input.parent_id);
+  return createFolder(actor, input.client_id, { name: input.name, parent_id: input.parent_id }, { staff: true });
+}
+
+/** Staff routes address a folder by id alone; the client comes from the folder. */
+async function staffFolderById(actor: AuthUser, id: number) {
+  const folder = await repo.findFolderById(id);
+  if (!folder) throw AppError.notFound("Folder");
+  await requireClientAccess(actor, folder.client_id, "Folder");
+  return requireStaffFolder(actor, folder.client_id, id);
+}
+
+export async function renameStaffFolder(actor: AuthUser, id: number, input: RenameFolderInput) {
+  const folder = await staffFolderById(actor, id);
+  return renameFolder(actor, folder.client_id, id, input, { staff: true });
+}
+
+export async function deleteStaffFolder(actor: AuthUser, id: number) {
+  const folder = await staffFolderById(actor, id);
+  await deleteFolder(actor, folder.client_id, id, { staff: true });
+}
+
+// ───────────── Document request folders ─────────────
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const NAME_MAX = 100;
+
+/** "2026-11" → "Nov 2026"; no period → the current month. */
+export function monthFolderName(period: string | null | undefined, now = new Date()) {
+  const [y, m] = period ? period.split("-").map(Number) : [now.getFullYear(), now.getMonth() + 1];
+  return `${MONTHS[m - 1]} ${y}`;
+}
+
+/** A request description as a folder name: one line, no slashes, at most 100 characters. */
+export function requestFolderName(description: string) {
+  const clean = description.replace(/[\/]+/g, "-").replace(/\s+/g, " ").trim().slice(0, NAME_MAX).trim();
+  return clean === "" || clean === "." || clean === ".." ? "Request" : clean;
+}
+
+/** `base`, or "base (2)", "base (3)"… whichever is free among the siblings (kept within 100 characters). */
+async function freeSiblingName(clientId: number, parentId: number, base: string, conn: PoolConnection) {
+  if (!(await repo.siblingNamed(clientId, parentId, base, conn))) return base;
+  for (let n = 2; n < 1000; n++) {
+    const suffix = ` (${n})`;
+    const name = `${base.slice(0, NAME_MAX - suffix.length).trimEnd()}${suffix}`;
+    if (!(await repo.siblingNamed(clientId, parentId, name, conn))) return name;
+  }
+  throw AppError.conflict("Too many folders with this name");
+}
+
+/**
+ * Makes the folder files for a new document request land in: "<Mon YYYY>" (top level, reused when it exists) /
+ * "<description>". Both are staff folders, so the client and the client's team see them. Returns the request folder.
+ */
+export async function createRequestFolder(r: { clientId: number; period: string | null; description: string; userId: number }, conn: PoolConnection) {
+  const monthName = monthFolderName(r.period);
+  const month = await repo.siblingNamed(r.clientId, null, monthName, conn);
+  const monthId = month?.id ?? (await repo.insertFolder({ clientId: r.clientId, parentId: null, name: monthName, userId: r.userId, staff: true }, conn));
+  const name = await freeSiblingName(r.clientId, monthId, requestFolderName(r.description), conn);
+  return repo.insertFolder({ clientId: r.clientId, parentId: monthId, name, userId: r.userId, staff: true }, conn);
 }

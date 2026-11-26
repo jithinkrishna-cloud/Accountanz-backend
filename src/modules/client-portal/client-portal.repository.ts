@@ -161,8 +161,8 @@ export const requestFiles = (clientId: number) =>
   );
 
 export const lockOpenRequest = (clientId: number, id: number, db: PoolConnection) =>
-  queryOne<{ id: number; description: string; requested_by: number | null; period: string | null }>(
-    `SELECT id, description, requested_by, period FROM document_requests WHERE id = ? AND client_id = ? AND status = 'open' FOR UPDATE`,
+  queryOne<{ id: number; description: string; requested_by: number | null; period: string | null; folder_id: number | null }>(
+    `SELECT id, description, requested_by, period, folder_id FROM document_requests WHERE id = ? AND client_id = ? AND status = 'open' FOR UPDATE`,
     [id, clientId],
     db,
   );

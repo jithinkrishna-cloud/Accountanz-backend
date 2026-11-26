@@ -6,7 +6,8 @@ import { clientScope, requireClientAccess } from "../access/client-access.js";
 import { recordAudit } from "../audit/audit.service.js";
 import { notifyDocumentRequested } from "../notifications/notification.service.js";
 import { listFoldersForClients } from "../document-folders/document-folder.repository.js";
-import { canSeeDocument, documentVisibility, folderPaths } from "../document-folders/document-folder.service.js";
+import { assertStaffFolder, canSeeDocument, createRequestFolder, documentVisibility, folderPaths, moveDocument } from "../document-folders/document-folder.service.js";
+import type { MoveDocumentInput } from "../document-folders/document-folder.validation.js";
 import * as repo from "./document.repository.js";
 import type { DocumentRow, DocumentStatus } from "./document.types.js";
 import type { CreateRequestInput, DocumentListQuery, RequestListQuery, StaffUploadInput } from "./document.validation.js";
@@ -62,6 +63,7 @@ export async function openDocument(actor: AuthUser, id: number) {
 export async function uploadDocument(actor: AuthUser, input: StaffUploadInput, file: Express.Multer.File) {
   await requireClientAccess(actor, input.client_id);
   await assertTaskOnClient(input.task_id, input.client_id);
+  await assertStaffFolder(actor, input.client_id, input.folder_id);
   const key = await saveFile("documents", file.originalname, file.buffer, file.mimetype);
   try {
     const id = await withTransaction(async (conn) => {
@@ -76,6 +78,14 @@ export async function uploadDocument(actor: AuthUser, input: StaffUploadInput, f
   }
 }
 
+/** Staff file a document they can see into a folder they can see (null = top level). */
+export async function moveToFolder(actor: AuthUser, id: number, input: MoveDocumentInput) {
+  const doc = await requireDocument(actor, id);
+  await assertStaffFolder(actor, doc.client_id, input.folder_id);
+  await moveDocument(actor, doc.client_id, id, input);
+  return toView((await repo.findDocument(id))!);
+}
+
 // ── Requests ──
 export const listRequests = (actor: AuthUser, q: RequestListQuery) => repo.listRequests(q, clientScope(actor, "r.client_id"));
 
@@ -83,7 +93,9 @@ export async function createRequest(actor: AuthUser, input: CreateRequestInput) 
   await requireClientAccess(actor, input.client_id);
   await assertTaskOnClient(input.task_id, input.client_id);
   const id = await withTransaction(async (conn) => {
-    const requestId = await repo.insertRequest(input, actor.id, conn);
+    // Files sent for the request land in "<Mon YYYY> / <description>" (shared with the client and the team).
+    const folderId = await createRequestFolder({ clientId: input.client_id, period: input.period, description: input.description, userId: actor.id }, conn);
+    const requestId = await repo.insertRequest(input, actor.id, folderId, conn);
     await recordAudit(actor, { action: "Document requested", entityType: "DocumentRequest", entityId: requestId, clientId: input.client_id, details: input.description }, conn);
     return requestId;
   });

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { createFolderSchema } from "../document-folders/document-folder.validation.js";
 import { listQuerySchema } from "../../utils/pagination.js";
 import { periodSchema } from "../../utils/zod-helpers.js";
 import { DOCUMENT_CATEGORIES, DOCUMENT_STATUSES, REQUEST_STATUSES } from "./document.types.js";
@@ -33,10 +34,16 @@ export const staffUploadSchema = z.object({
   category: z.enum(DOCUMENT_CATEGORIES).default("other"),
   period: periodSchema.optional().or(blankToUndefined),
   task_id: z.coerce.number().int().positive().optional().or(blankToUndefined),
+  /** Document Centre folder to file it in (blank = top level). */
+  folder_id: z.coerce.number().int().positive().optional().or(blankToUndefined),
 });
+
+export const staffFolderListQuerySchema = z.object({ client_id: z.coerce.number().int().positive() });
+export const staffCreateFolderSchema = createFolderSchema.extend({ client_id: z.coerce.number().int().positive() });
 
 export type DocumentListQuery = z.infer<typeof documentListQuerySchema>;
 export type RequestListQuery = z.infer<typeof requestListQuerySchema>;
 export type DocumentStatusInput = z.infer<typeof documentStatusSchema>;
 export type CreateRequestInput = z.infer<typeof createRequestSchema>;
 export type StaffUploadInput = z.infer<typeof staffUploadSchema>;
+export type StaffCreateFolderInput = z.infer<typeof staffCreateFolderSchema>;

@@ -38,8 +38,8 @@ export async function setDocumentStatus(id: number, status: DocumentStatus, revi
 
 export async function insertDocument(input: StaffUploadInput, file: { key: string; name: string; mime: string; size: number }, uploaderId: number, conn: PoolConnection) {
   const r = await execute(
-    `INSERT INTO documents (client_id, task_id, uploaded_by, category, period, file_path, file_name, mime_type, size_bytes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [input.client_id, input.task_id ?? null, uploaderId, input.category, input.period ?? null, file.key, file.name, file.mime, file.size],
+    `INSERT INTO documents (client_id, task_id, folder_id, uploaded_by, category, period, file_path, file_name, mime_type, size_bytes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [input.client_id, input.task_id ?? null, input.folder_id ?? null, uploaderId, input.category, input.period ?? null, file.key, file.name, file.mime, file.size],
     conn,
   );
   return r.insertId;
@@ -48,7 +48,7 @@ export async function insertDocument(input: StaffUploadInput, file: { key: strin
 // ── Requests ──
 const REQUEST_FROM = `FROM document_requests r JOIN clients c ON c.id = r.client_id LEFT JOIN users u ON u.id = r.requested_by`;
 const REQUEST_COLUMNS = `r.id, r.client_id, COALESCE(c.trade_name, c.legal_name) AS client_name, r.description,
-       u.email AS requested_by_email, r.due_date, r.period, r.status, r.task_id, r.created_at`;
+       u.email AS requested_by_email, r.due_date, r.period, r.status, r.task_id, r.folder_id, r.created_at`;
 
 export async function listRequests(q: RequestListQuery, scope: Scope): Promise<Paged<DocumentRequestRow>> {
   const where = ["r.status = ?", scope.sql];
@@ -67,10 +67,10 @@ export async function listRequests(q: RequestListQuery, scope: Scope): Promise<P
 export const findRequest = (id: number, db?: PoolConnection) =>
   queryOne<DocumentRequestRow>(`SELECT ${REQUEST_COLUMNS} ${REQUEST_FROM} WHERE r.id = ?${db ? " FOR UPDATE" : ""}`, [id], db);
 
-export async function insertRequest(input: CreateRequestInput, requesterId: number, conn: PoolConnection) {
+export async function insertRequest(input: CreateRequestInput, requesterId: number, folderId: number | null, conn: PoolConnection) {
   const r = await execute(
-    `INSERT INTO document_requests (client_id, task_id, requested_by, description, due_date, period) VALUES (?, ?, ?, ?, ?, ?)`,
-    [input.client_id, input.task_id, requesterId, input.description, input.due_date, input.period],
+    `INSERT INTO document_requests (client_id, task_id, requested_by, description, due_date, period, folder_id) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [input.client_id, input.task_id, requesterId, input.description, input.due_date, input.period, folderId],
     conn,
   );
   return r.insertId;
