@@ -3,6 +3,9 @@ import { listQuerySchema } from "../../utils/pagination.js";
 import { optionalText, periodSchema } from "../../utils/zod-helpers.js";
 import { TASK_SOURCES, TASK_STATUSES } from "./task.types.js";
 
+/** open = to do / in progress / returned; overdue and due_week are open tasks by due date; review = submitted; done = approved. */
+export const TASK_VIEWS = ["open", "overdue", "due_week", "review", "done"] as const;
+
 export const taskListQuerySchema = listQuerySchema.extend({
   status: z.enum(TASK_STATUSES).optional(),
   period: periodSchema.optional(),
@@ -10,6 +13,8 @@ export const taskListQuerySchema = listQuerySchema.extend({
   client_id: z.coerce.number().int().positive().optional(),
   /** Accountant portal: "mine" = assigned to me, "clients" = every task on my clients (managers only). */
   scope: z.enum(["mine", "clients"]).default("mine"),
+  /** Quick views on the list: what needs attention first. */
+  view: z.enum(TASK_VIEWS).optional(),
 });
 
 export const taskClientsQuerySchema = z.object({ scope: z.enum(["mine", "clients"]).default("mine") });

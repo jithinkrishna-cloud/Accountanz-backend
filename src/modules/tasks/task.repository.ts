@@ -3,7 +3,7 @@ import { execute, pool, query, queryOne, type Param } from "../../database/conne
 import { offsetOf, type Paged } from "../../utils/pagination.js";
 import { activeAssignmentSql } from "../access/client-access.js";
 import type { ChecklistItem, GenerationCandidate, TaskDetail, TaskListRow, TaskOptions, TaskRecord, TaskStatus } from "./task.types.js";
-import type { TaskListQuery } from "./task.validation.js";
+import { TASK_VIEWS, type TaskListQuery } from "./task.validation.js";
 
 type Db = PoolConnection | typeof pool;
 
@@ -15,7 +15,7 @@ type Db = PoolConnection | typeof pool;
 export async function listTasks(
   q: TaskListQuery,
   opts: { scopeSql?: string; scopeParams?: Param[]; assigneeId?: number } = {},
-): Promise<Paged<TaskListRow>> {
+): Promise<Paged<TaskListRow> & { counts: TaskViewCounts }> {
   const where: string[] = [];
   const params: Param[] = [];
   if (opts.scopeSql) (where.push(opts.scopeSql), params.push(...(opts.scopeParams ?? [])));
@@ -29,8 +29,15 @@ export async function listTasks(
   if (q.period) (where.push("t.period = ?"), params.push(q.period));
   if (q.source) (where.push("t.creation_source = ?"), params.push(q.source));
   if (q.client_id) (where.push("t.client_id = ?"), params.push(q.client_id));
-  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
   const from = `FROM tasks t JOIN clients c ON c.id = t.client_id LEFT JOIN users a ON a.id = t.assignee_id LEFT JOIN users r ON r.id = t.reviewer_id`;
+  // The view counts ignore the chosen view and status, so the summary tiles always show the whole picture.
+  const baseWhereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const counts = await queryOne<TaskViewCounts>(
+    `SELECT ${Object.entries(VIEW_SQL).map(([k, sql]) => `CAST(COALESCE(SUM(${sql}), 0) AS UNSIGNED) AS ${k}`).join(", ")} ${from} ${baseWhereSql}`,
+    params,
+  );
+  if (q.view) where.push(VIEW_SQL[q.view]);
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
   const rows = await query<TaskListRow & { client_visible: unknown }>(
     `SELECT t.id, t.title, t.period, t.status, t.due_date, t.client_visible, t.creation_source AS source,
@@ -42,8 +49,25 @@ export async function listTasks(
     [...params, q.pageSize, offsetOf(q)],
   );
   const total = await queryOne<{ n: number }>(`SELECT COUNT(*) AS n ${from} ${whereSql}`, params);
-  return { items: rows.map((r) => ({ ...r, client_visible: Boolean(r.client_visible) })), total: total?.n ?? 0, page: q.page, pageSize: q.pageSize };
+  return {
+    items: rows.map((r) => ({ ...r, client_visible: Boolean(r.client_visible) })),
+    total: total?.n ?? 0,
+    page: q.page,
+    pageSize: q.pageSize,
+    counts: counts ?? { open: 0, overdue: 0, due_week: 0, review: 0, done: 0 },
+  };
 }
+
+const OPEN_SQL = "t.status IN ('todo', 'in_progress', 'returned')";
+const VIEW_SQL: Record<TaskView, string> = {
+  open: OPEN_SQL,
+  overdue: `${OPEN_SQL} AND t.due_date < CURDATE()`,
+  due_week: `${OPEN_SQL} AND t.due_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY)`,
+  review: "t.status = 'submitted'",
+  done: "t.status = 'approved'",
+};
+export type TaskView = (typeof TASK_VIEWS)[number];
+export type TaskViewCounts = Record<TaskView, number>;
 
 /** Work that needs doing first (returned, in progress, to do), then waiting for review, then done (newest month first). */
 const TASK_WORK_ORDER = `FIELD(t.status, 'returned', 'in_progress', 'todo', 'submitted', 'approved')`;
