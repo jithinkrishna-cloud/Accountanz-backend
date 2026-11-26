@@ -24,6 +24,8 @@ export async function listDocuments(q: DocumentListQuery, scope: Scope): Promise
   if (q.client_id) (where.push("d.client_id = ?"), params.push(q.client_id));
   if (q.category) (where.push("d.category = ?"), params.push(q.category));
   if (q.status) (where.push("d.status = ?"), params.push(q.status));
+  if (q.folder_id === "root") where.push("d.folder_id IS NULL");
+  else if (q.folder_id) (where.push("d.folder_id = ?"), params.push(q.folder_id));
   const whereSql = `WHERE ${where.join(" AND ")}`;
   const items = await query<DocumentRow>(`${DOC_SELECT} ${whereSql} ORDER BY d.created_at DESC, d.id DESC LIMIT ? OFFSET ?`, [...params, q.pageSize, offsetOf(q)]);
   const total = await queryOne<{ n: number }>(`SELECT COUNT(*) AS n FROM documents d ${whereSql}`, params);

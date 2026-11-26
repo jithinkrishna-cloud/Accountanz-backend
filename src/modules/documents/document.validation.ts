@@ -10,6 +10,8 @@ export const documentListQuerySchema = listQuerySchema.extend({
   client_id: z.coerce.number().int().positive().optional(),
   category: z.enum(DOCUMENT_CATEGORIES).optional(),
   status: z.enum(DOCUMENT_STATUSES).optional(),
+  /** One Document Centre folder ("root" = top level); omitted = every folder. */
+  folder_id: z.union([z.literal("root"), z.coerce.number().int().positive()]).optional(),
 });
 
 export const requestListQuerySchema = listQuerySchema.extend({
