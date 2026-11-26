@@ -52,7 +52,7 @@ export async function ensurePrimarySpace(actor: AuthUser, clientId: number, conn
 
   for (let attempt = 0; attempt < KEY_ATTEMPTS; attempt++) {
     try {
-      const spaceId = await repo.insertSpace({ space_key: key, name, template: "kanban", client_id: clientId } as Parameters<typeof repo.insertSpace>[0], "client_primary", firstAdminId, conn);
+      const spaceId = await repo.insertSpace({ space_key: key, name, template: "kanban", client_id: clientId } as Parameters<typeof repo.insertSpace>[0], "client_primary", actor.id, firstAdminId, conn);
       await recordAudit(actor, { action: "Workspace client space created", entityType: "ProjectSpace", entityId: spaceId, clientId, details: `${key} · ${name}` }, conn);
       return { spaceId, created: true, restored: false };
     } catch (err) {

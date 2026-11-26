@@ -68,15 +68,15 @@ describe("ensurePrimarySpace", () => {
     m.findPrimarySpace.mockResolvedValue(undefined);
     m.insertSpace.mockResolvedValue(9);
     expect(await cs.ensurePrimarySpace(admin, 1, conn)).toEqual({ spaceId: 9, created: true, restored: false });
-    expect(m.insertSpace).toHaveBeenCalledWith(expect.objectContaining({ space_key: "GLPL", name: "Green Leaf Pvt Ltd", template: "kanban", client_id: 1 }), "client_primary", 7, conn);
+    expect(m.insertSpace).toHaveBeenCalledWith(expect.objectContaining({ space_key: "GLPL", name: "Green Leaf Pvt Ltd", template: "kanban", client_id: 1 }), "client_primary", 7, 7, conn);
     expect(m.recordAudit).toHaveBeenCalledWith(admin, expect.objectContaining({ action: "Workspace client space created", entityId: 9 }), conn);
   });
 
-  it("adds no member when the actor is not a portal admin", async () => {
+  it("records the creator but adds no member when the actor is not a portal admin", async () => {
     m.findPrimarySpace.mockResolvedValue(undefined);
     m.insertSpace.mockResolvedValue(9);
     await cs.ensurePrimarySpace(staff, 1, conn);
-    expect(m.insertSpace).toHaveBeenCalledWith(expect.anything(), "client_primary", null, conn);
+    expect(m.insertSpace).toHaveBeenCalledWith(expect.anything(), "client_primary", 8, null, conn);
   });
 
   it("slices long names to 80 chars", async () => {

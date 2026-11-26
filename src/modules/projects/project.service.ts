@@ -22,7 +22,7 @@ export async function createSpace(actor: AuthUser, input: CreateSpaceInput) {
   if (input.client_id && !(await repo.clientExists(input.client_id))) throw AppError.notFound("Client");
   await requireLinkableClient(actor, input.client_id);
   const id = await withTransaction(async (conn) => {
-    const spaceId = await repo.insertSpace(input, "internal", actor.id, conn);
+    const spaceId = await repo.insertSpace(input, "internal", actor.id, actor.id, conn);
     await recordAudit(actor, { action: "Workspace space created", entityType: "ProjectSpace", entityId: spaceId, clientId: input.client_id ?? null, details: `${input.space_key} · ${input.name}` }, conn);
     return spaceId;
   });

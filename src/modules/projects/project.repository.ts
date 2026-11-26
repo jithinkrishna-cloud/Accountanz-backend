@@ -37,11 +37,11 @@ export const clientExists = async (id: number) => !!(await queryOne<{ id: number
 
 export type SpaceKind = "client_primary" | "client_project" | "internal";
 
-/** Inserts a space with its default statuses; `firstAdminId` (if any) becomes creator and admin member. */
-export async function insertSpace(input: CreateSpaceInput, kind: SpaceKind, firstAdminId: number | null, conn: PoolConnection) {
+/** Inserts a space with its default statuses; `createdBy` is the creator; `firstAdminId` (if any) also becomes an admin member. */
+export async function insertSpace(input: CreateSpaceInput, kind: SpaceKind, createdBy: number, firstAdminId: number | null, conn: PoolConnection) {
   const r = await execute(
     `INSERT INTO project_spaces (space_key, name, description, template, client_id, kind, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [input.space_key, input.name, input.description ?? null, input.template, input.client_id ?? null, kind, firstAdminId],
+    [input.space_key, input.name, input.description ?? null, input.template, input.client_id ?? null, kind, createdBy],
     conn,
   );
   const spaceId = r.insertId;
