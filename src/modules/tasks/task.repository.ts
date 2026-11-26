@@ -238,15 +238,20 @@ export const findActiveUser = (id: number) =>
 
 /**
  * Every (active engagement × template item) that could produce a task for the period:
- * the engagement must cover the period, and the template's service must be in the engagement's package.
+ * the engagement must cover the period, and the template's service must be one of the engagement's services (its own list, else its package's).
  */
 export function listGenerationCandidates(periodStart: string, periodEnd: string, conn: PoolConnection) {
   return query<GenerationCandidate>(
     `SELECT e.client_id, e.id AS engagement_id, i.id AS template_item_id, i.title, i.checklist, i.client_visible,
             tt.due_day_of_period, tt.recurrence
        FROM engagements e
-       JOIN package_services ps ON ps.package_id = e.package_id
-       JOIN task_templates tt ON tt.service_id = ps.service_id
+       JOIN (
+         SELECT es.engagement_id, es.service_id FROM engagement_services es
+         UNION ALL
+         SELECT e3.id, ps.service_id FROM engagements e3 JOIN package_services ps ON ps.package_id = e3.package_id
+          WHERE NOT EXISTS (SELECT 1 FROM engagement_services x WHERE x.engagement_id = e3.id)
+       ) svc ON svc.engagement_id = e.id
+       JOIN task_templates tt ON tt.service_id = svc.service_id
        JOIN task_template_items i ON i.template_id = tt.id
       WHERE e.status = 'active'
         AND e.start_date IS NOT NULL AND e.start_date <= ?

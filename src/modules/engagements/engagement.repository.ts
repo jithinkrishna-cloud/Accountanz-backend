@@ -15,6 +15,11 @@ const SELECT = `
          (SELECT i.invoice_number FROM service_invoices i WHERE i.engagement_id = e.id AND i.status <> 'cancelled' ORDER BY i.period, i.id LIMIT 1) AS first_invoice_number,
          pcr.id AS pending_change_id, pcr.source AS pending_change_source, pcr.to_package_id AS pending_change_package_id,
          tp.name AS pending_change_package_name, pcr.message AS pending_change_message, pcr.created_at AS pending_change_at,
+         (SELECT GROUP_CONCAT(s.name ORDER BY s.name SEPARATOR '||') FROM services s WHERE s.id IN (
+            SELECT es.service_id FROM engagement_services es WHERE es.engagement_id = e.id
+            UNION SELECT ps.service_id FROM package_services ps WHERE ps.package_id = e.package_id
+              AND NOT EXISTS (SELECT 1 FROM engagement_services x WHERE x.engagement_id = e.id))) AS service_names,
+         EXISTS (SELECT 1 FROM engagement_services x WHERE x.engagement_id = e.id) AS custom_services,
          e.created_at, e.updated_at
     FROM engagements e
     JOIN clients c ON c.id = e.client_id
@@ -161,3 +166,15 @@ export async function setAgreement(id: number, filePath: string, fileName: strin
     db,
   );
 }
+
+/** Per-client services. An empty list means "use the package's services". */
+export async function setEngagementServices(engagementId: number, serviceIds: number[], db: Db = pool) {
+  await execute(`DELETE FROM engagement_services WHERE engagement_id = ?`, [engagementId], db);
+  for (const sid of serviceIds) await execute(`INSERT INTO engagement_services (engagement_id, service_id) VALUES (?, ?)`, [engagementId, sid], db);
+}
+
+export const packageServiceIds = async (packageId: number, db: Db = pool) =>
+  (await query<{ service_id: number }>(`SELECT service_id FROM package_services WHERE package_id = ? ORDER BY service_id`, [packageId], db)).map((r) => r.service_id);
+
+export const servicesExist = async (ids: number[], db: Db = pool) =>
+  ids.length > 0 && (await query<{ n: number }>(`SELECT COUNT(*) AS n FROM services WHERE id IN (${ids.map(() => "?").join(",")})`, ids, db))[0].n === ids.length;

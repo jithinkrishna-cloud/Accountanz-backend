@@ -51,6 +51,16 @@ export async function createEngagement(actor: AuthUser, input: EngagementInput) 
     const startDate = input.start_date ?? (input.activate_now ? new Date().toISOString().slice(0, 10) : input.start_date);
     const newId = await repo.insertEngagement({ ...input, start_date: startDate }, conn);
     await recordAudit(actor, { action: "Engagement created", entityType: "Engagement", entityId: newId, clientId: input.client_id, details: `${client.legal_name} on ${pkg.name}` }, conn);
+    if (input.service_ids) {
+      const wanted = [...new Set(input.service_ids)].sort((a, b) => a - b);
+      const fromPackage = await repo.packageServiceIds(input.package_id, conn);
+      // Only store a list when it differs from the package; otherwise the package's services apply.
+      if (wanted.join(",") !== fromPackage.join(",")) {
+        if (!(await repo.servicesExist(wanted, conn))) throw fieldError("service_ids", "Pick services from the catalogue");
+        await repo.setEngagementServices(newId, wanted, conn);
+        await recordAudit(actor, { action: "Engagement services customised", entityType: "Engagement", entityId: newId, clientId: input.client_id, details: `${wanted.length} service(s), differs from ${pkg.name}` }, conn);
+      }
+    }
     if (input.activate_now) {
       // Direct onboarding by an admin: active immediately. The signed agreement can be uploaded later; no first
       // invoice is issued here (billing starts with the regular billing run).

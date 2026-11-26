@@ -34,6 +34,8 @@ async function applyChange(actor: AuthUser, engagementId: number, toPackageId: n
   if (e.package_id === toPackageId && monthlyFee == null) throw fieldError("package_id", "The engagement is already on this package");
 
   await engagementRepo.updateEngagement(e.id, { package_id: toPackageId, monthly_fee: monthlyFee }, conn);
+  // A new package brings its own services: any per-client service list is dropped.
+  if (e.package_id !== toPackageId) await engagementRepo.setEngagementServices(e.id, [], conn);
   await onClientTeamChanged(actor, e.client_id, conn);
   let effect = "";
   if (e.status === "sent" || e.status === "accepted") {

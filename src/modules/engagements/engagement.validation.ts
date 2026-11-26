@@ -19,6 +19,8 @@ export const engagementBodySchema = z
     renewal_date: optionalDate,
     /** Admin onboarding a client directly: the package is active at once (no agreement, no first invoice). */
     activate_now: z.boolean().optional().default(false),
+    /** Per-client services; omitted (or the same as the package) means the package's services. */
+    service_ids: z.array(z.coerce.number().int().positive()).min(1, "Pick at least one service").max(50).optional(),
   })
   .refine(datesInOrder, datesError);
 

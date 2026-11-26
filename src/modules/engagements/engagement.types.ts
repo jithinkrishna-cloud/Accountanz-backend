@@ -12,6 +12,9 @@ export const ENGAGEMENT_TRANSITIONS: Record<EngagementStatus, EngagementStatus[]
 
 export interface EngagementRow {
   id: number;
+  /** Effective services, "||"-separated: the engagement's own list, or the package's when it has none. */
+  service_names: string | null;
+  custom_services: number;
   client_id: number;
   client_name: string;
   client_status: string;
