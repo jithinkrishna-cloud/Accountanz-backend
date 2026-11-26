@@ -100,7 +100,8 @@ export async function changeStatus(actor: AuthUser, id: number, input: StatusInp
 
     await repo.setStatus(id, input.to, conn);
     if (input.to === "active") await onEngagementActivated(actor, e.client_id, conn);
-    else if (input.to === "ended") await onEngagementEnded(actor, e.client_id, conn);
+    // Only an engagement that was live owns the primary space; ending a draft/sent/accepted one leaves it alone.
+    else if (input.to === "ended" && e.status === "active") await onEngagementEnded(actor, e.client_id, conn);
     await recordAudit(actor, { action: "Engagement status changed", entityType: "Engagement", entityId: id, clientId: e.client_id, details: `${humanize(e.status)} → ${humanize(input.to)}` }, conn);
     // Accepted or active on the engagement means accepted in onboarding too.
     if (input.to === "accepted" || input.to === "active") await syncCaseWithEngagement(actor, e.client_id, "team", conn);
