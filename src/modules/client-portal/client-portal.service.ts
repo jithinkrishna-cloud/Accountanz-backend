@@ -54,19 +54,6 @@ export async function getBusiness(ctx: ClientContext) {
 
 export const getTeam = (ctx: ClientContext) => repo.team(ctx.clientId);
 export const getSoftware = (ctx: ClientContext) => repo.software(ctx.clientId);
-
-/** The company owner withdraws Accountanz's access to their JournL organisation. */
-export async function disconnectJournl(actor: AuthUser, ctx: ClientContext) {
-  if (ctx.role !== "owner") throw AppError.forbidden("Only the company owner can disconnect accounting software");
-  await withTransaction(async (conn) => {
-    const existing = await repo.lockJournlConnection(ctx.clientId, conn);
-    if (!existing || existing.status === "disconnected") throw AppError.conflict("JournL is not connected for your company");
-    await repo.disconnectJournlConnection(existing.id, conn);
-    await setClientSoftware(ctx.clientId, "none", conn);
-    await recordAudit(actor, { action: "JournL disconnected", entityType: "IntegrationConnection", entityId: existing.id, clientId: ctx.clientId, details: "Disconnected by the company owner" }, conn);
-  });
-  return repo.software(ctx.clientId);
-}
 /** The company's files, each with the accountants it is shared with directly. */
 export async function getDocuments(ctx: ClientContext) {
   const [docs, shares] = await Promise.all([repo.listDocuments(ctx.clientId), listDocumentShares(ctx.clientId)]);
