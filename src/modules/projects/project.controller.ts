@@ -24,7 +24,7 @@ export const archive = async (req: Request, res: Response) => void res.json(awai
 export const unarchive = async (req: Request, res: Response) => void res.json(await service.unarchiveSpace(req.user!, spaceOf(res)));
 export const clientSpace = async (req: Request, res: Response) => void res.json(await service.clientSpaceOverview(req.user!, q(res).client_id as number));
 export const provision = async (req: Request, res: Response) => void res.json(await service.provisionPrimary(req.user!, (req.body as { client_id: number }).client_id));
-export const getLimits = async (_req: Request, res: Response) => void res.json(await limits.getLimits(spaceOf(res)));
+export const getLimits = async (req: Request, res: Response) => void res.json(await limits.getLimits(req.user!, spaceOf(res)));
 export const grantOverride = async (req: Request, res: Response) => void res.status(201).json(await limits.grantOverride(req.user!, spaceOf(res), req.body));
 export const revokeOverride = async (req: Request, res: Response) => void res.json(await limits.revokeOverride(req.user!, spaceOf(res), params(res).id!));
 export const syncIssues = async (req: Request, res: Response) => void res.json(await service.listSyncIssues(req.user!, spaceOf(res)));

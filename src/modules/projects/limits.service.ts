@@ -2,7 +2,7 @@ import { withTransaction } from "../../database/connection.js";
 import type { AuthUser } from "../../types/auth.types.js";
 import { AppError } from "../../utils/app-error.js";
 import { recordAudit } from "../audit/audit.service.js";
-import { effectiveEntitlement, type Limit } from "./entitlement.js";
+import { effectiveEntitlement, isPortalAdminRole, type Limit } from "./entitlement.js";
 import * as repo from "./project.repository.js";
 import type { SpaceContext } from "./project.types.js";
 import type { GrantOverrideInput } from "./project.validation.js";
@@ -11,12 +11,15 @@ export const NO_PACKAGE_MESSAGE = "This client has no active package";
 
 const show = (l: Limit) => (l === null ? "Unlimited" : String(l));
 
-/** Package limits, live overrides, effective values and usage for a client space; null for internal spaces. */
-export async function getLimits(space: SpaceContext) {
+/**
+ * Package limits, live overrides, effective values and usage for a client space; null for internal spaces.
+ * Override rows (whose reasons may hold commercial notes) go to portal admins only; others get an empty list.
+ */
+export async function getLimits(viewer: AuthUser, space: SpaceContext) {
   if (space.client_id === null) return null;
   const [entitlement, overrides, workspaces, staff] = await Promise.all([
     effectiveEntitlement(space.client_id),
-    repo.listActiveOverrides(space.client_id),
+    isPortalAdminRole(viewer.role) ? repo.listActiveOverrides(space.client_id) : Promise.resolve([]),
     repo.countActiveClientSpaces(space.client_id),
     repo.countStaffSeats(space.id),
   ]);
@@ -62,7 +65,7 @@ export async function grantOverride(actor: AuthUser, space: SpaceContext, input:
       conn,
     );
   });
-  return getLimits(space);
+  return getLimits(actor, space);
 }
 
 export async function revokeOverride(actor: AuthUser, space: SpaceContext, id: number) {
@@ -86,5 +89,5 @@ export async function revokeOverride(actor: AuthUser, space: SpaceContext, id: n
       conn,
     );
   });
-  return getLimits(space);
+  return getLimits(actor, space);
 }

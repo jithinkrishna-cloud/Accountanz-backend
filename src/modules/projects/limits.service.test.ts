@@ -16,7 +16,7 @@ const m = vi.hoisted(() => ({
 
 vi.mock("../../database/connection.js", () => ({ withTransaction: (fn: (c: unknown) => unknown) => fn(m.conn) }));
 vi.mock("../audit/audit.service.js", () => ({ recordAudit: m.recordAudit }));
-vi.mock("./entitlement.js", () => ({ effectiveEntitlement: m.effectiveEntitlement }));
+vi.mock("./entitlement.js", () => ({ effectiveEntitlement: m.effectiveEntitlement, isPortalAdminRole: (r: string) => r === "super_admin" || r === "ops_admin" }));
 vi.mock("./project.repository.js", () => ({
   insertOverride: m.insertOverride,
   findActiveOverride: m.findActiveOverride,
@@ -102,12 +102,29 @@ describe("revokeOverride", () => {
 
 describe("getLimits", () => {
   it("is null for internal spaces", async () => {
-    expect(await ls.getLimits({ ...space, client_id: null, kind: "internal" })).toBeNull();
+    expect(await ls.getLimits(sup, { ...space, client_id: null, kind: "internal" })).toBeNull();
   });
 
   it("combines package, overrides, effective and usage", async () => {
     m.effectiveEntitlement.mockResolvedValue(ent(5));
-    const r = await ls.getLimits(space);
+    const r = await ls.getLimits(sup, space);
     expect(r).toEqual({ package_name: "Growth", base: { workspaces: 3, staff: 5 }, overrides: [], effective: { workspaces: 5, staff: 5 }, usage: { workspaces: 2, staff: 1 } });
+  });
+
+  it("shows override rows to portal admins", async () => {
+    m.effectiveEntitlement.mockResolvedValue(ent(5));
+    const row = { id: 9, limit_type: "workspaces", extra: 2, reason: "Paid add-on Rs 999", expires_at: null };
+    m.listActiveOverrides.mockResolvedValue([row]);
+    expect((await ls.getLimits(sup, space))?.overrides).toEqual([row]);
+    expect((await ls.getLimits(ops, space))?.overrides).toEqual([row]);
+  });
+
+  it("hides override rows from other staff but keeps the effective limits", async () => {
+    m.effectiveEntitlement.mockResolvedValue(ent(5));
+    m.listActiveOverrides.mockResolvedValue([{ id: 9, limit_type: "workspaces", extra: 2, reason: "secret", expires_at: null }]);
+    const r = await ls.getLimits({ id: 3, role: "bookkeeper" } as unknown as AuthUser, space);
+    expect(r?.overrides).toEqual([]);
+    expect(r?.effective).toEqual({ workspaces: 5, staff: 5 });
+    expect(m.listActiveOverrides).not.toHaveBeenCalled();
   });
 });
