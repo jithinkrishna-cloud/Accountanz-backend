@@ -2,11 +2,13 @@ import type { PoolConnection } from "mysql2/promise";
 import { execute, query, queryOne, type Param } from "../../database/connection.js";
 import { DEFAULT_STATUSES, WORKSPACE_ROLES, type MemberRow, type MemberSource, type SyncIssueReason, type SpaceRole, type SpaceRow, type StatusCategory, type StatusRow } from "./project.types.js";
 import { activeAssignmentSql } from "../access/client-access.js";
+import { countedMembershipSql } from "./project-access.js";
 import type { CreateSpaceInput, UpdateSpaceInput } from "./project.validation.js";
 
 const STAFF_IN = WORKSPACE_ROLES.map(() => "?").join(",");
 
 // ── Spaces ──
+// `m` is the caller's membership; a lapsed client_team row does not count (see countedMembershipSql).
 const SPACE_SELECT = `
   SELECT s.id, s.space_key, s.name, s.description, s.template, s.client_id, s.kind, s.archived_at,
          COALESCE(c.trade_name, c.legal_name) AS client_name, s.created_at,
@@ -18,7 +20,7 @@ const SPACE_SELECT = `
          m.role AS my_role
     FROM project_spaces s
     LEFT JOIN clients c ON c.id = s.client_id
-    LEFT JOIN project_space_members m ON m.space_id = s.id AND m.user_id = ?`;
+    LEFT JOIN project_space_members m ON m.space_id = s.id AND m.user_id = ? AND ${countedMembershipSql("m", "s")}`;
 
 export type SpaceVisibility = "all" | "members_or_client" | "members";
 
@@ -255,16 +257,17 @@ export const listClientTeam = (clientId: number, conn: PoolConnection) =>
   query<{ user_id: number; full_name: string; portal_role: string }>(
     `SELECT u.id AS user_id, u.full_name, u.portal_role
        FROM assignments a JOIN users u ON u.id = a.user_id
-      WHERE a.client_id = ? AND ${activeAssignmentSql("a")}
+      WHERE a.client_id = ? AND ${activeAssignmentSql("a")} AND u.status <> 'disabled'
       GROUP BY u.id, u.full_name, u.portal_role ORDER BY MIN(a.id)`,
     [clientId],
     conn,
   );
 
+/** Locking read of the member rows, so the sync sees the latest committed members even under an older snapshot. */
 export const listMembersWithSource = (spaceId: number, conn: PoolConnection) =>
   query<{ user_id: number; role: SpaceRole; source: MemberSource; portal_role: string }>(
     `SELECT m.user_id, m.role, m.source, u.portal_role
-       FROM project_space_members m JOIN users u ON u.id = m.user_id WHERE m.space_id = ?`,
+       FROM project_space_members m JOIN users u ON u.id = m.user_id WHERE m.space_id = ? FOR SHARE OF m`,
     [spaceId],
     conn,
   );

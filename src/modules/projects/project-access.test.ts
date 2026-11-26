@@ -1,10 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Request, Response } from "express";
 import type { AuthUser } from "../../types/auth.types.js";
 
-vi.mock("../../database/connection.js", () => ({ queryOne: vi.fn() }));
+const m = vi.hoisted(() => ({ queryOne: vi.fn() }));
+vi.mock("../../database/connection.js", () => ({ queryOne: m.queryOne }));
 
-const { spaceRoleFor, rejectWritesWhenArchived } = await import("./project-access.js");
+const { countedMembershipSql, resolveSpace, spaceRoleFor, rejectWritesWhenArchived } = await import("./project-access.js");
 
 const ARCHIVED = "This space is archived. Unarchive it to make changes.";
 const user = (role: string) => ({ role }) as Pick<AuthUser, "role">;
@@ -48,5 +49,31 @@ describe("rejectWritesWhenArchived", () => {
     const { next, call } = run("POST", "/items", false);
     call();
     expect(next).toHaveBeenCalledOnce();
+  });
+});
+
+describe("countedMembershipSql", () => {
+  it("counts manual rows, and client_team rows only with an active assignment on the space's client", () => {
+    const sql = countedMembershipSql("m", "s");
+    expect(sql).toContain("m.source = 'manual'");
+    expect(sql).toContain("ma.user_id = m.user_id AND ma.client_id = s.client_id");
+    expect(sql).toContain("ma.status = 'active' AND ma.valid_from <= CURDATE() AND (ma.valid_to IS NULL OR ma.valid_to >= CURDATE())");
+  });
+});
+
+describe("resolveSpace", () => {
+  beforeEach(() => m.queryOne.mockReset());
+
+  it("joins the caller's membership through the counted-membership rule", async () => {
+    m.queryOne.mockResolvedValue({ id: 5, space_key: "GL", name: "Green Leaf", template: "kanban", client_id: 3, kind: "client_primary", archived_at: null, role: "member" });
+    await resolveSpace({ id: 9, role: "bookkeeper" } as AuthUser, "gl");
+    const [sql, params] = m.queryOne.mock.calls[0];
+    expect(sql).toContain(`m.user_id = ? AND ${countedMembershipSql("m", "s")}`);
+    expect(params).toEqual([9, "GL"]);
+  });
+
+  it("404s a staff member whose only membership is a lapsed client_team row (no counted role)", async () => {
+    m.queryOne.mockResolvedValue({ id: 5, space_key: "GL", name: "Green Leaf", template: "kanban", client_id: 3, kind: "client_primary", archived_at: null, role: null });
+    await expect(resolveSpace({ id: 9, role: "bookkeeper" } as AuthUser, "GL")).rejects.toThrow("Space");
   });
 });

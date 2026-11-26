@@ -84,9 +84,11 @@ export async function archivePrimaryForClient(actor: AuthUser, clientId: number,
 /**
  * Makes the primary space's client_team members mirror the client's active team, within package rules.
  * Idempotent; never touches manual members; removals deliberately bypass the "at least one Administrator" rule.
+ * Locks the client first, so concurrent syncs and seat checks for the same client run one at a time.
  */
 export async function syncPrimaryMembers(actor: AuthUser, clientId: number, conn: PoolConnection) {
   const result = { added: [] as number[], removed: [] as number[], issues: [] as { userId: number; reason: SyncIssueReason }[] };
+  await repo.lockClient(clientId, conn);
   const space = await repo.findPrimarySpace(clientId, conn);
   if (!space) return result;
 
@@ -117,6 +119,9 @@ export async function syncPrimaryMembers(actor: AuthUser, clientId: number, conn
     memberIds.delete(r.user_id);
     result.removed.push(r.user_id);
   }
+
+  // Someone who stays a member (a manual row) already has access; their role is no issue to report.
+  for (const [userId, reason] of issueFor) if (reason === "role_not_included" && memberIds.has(userId)) issueFor.delete(userId);
 
   const limit = entitlement?.staffPerWorkspace ?? null;
   let seats = members.filter((x) => memberIds.has(x.user_id) && !isPortalAdminRole(x.portal_role)).length;

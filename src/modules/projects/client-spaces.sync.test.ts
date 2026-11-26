@@ -4,6 +4,7 @@ import type { AuthUser } from "../../types/auth.types.js";
 
 const m = vi.hoisted(() => ({
   findPrimarySpace: vi.fn(),
+  lockClient: vi.fn(),
   listClientTeam: vi.fn(),
   listMembersWithSource: vi.fn(),
   addMember: vi.fn(),
@@ -25,6 +26,7 @@ vi.mock("./entitlement.js", () => ({
 }));
 vi.mock("./project.repository.js", () => ({
   findPrimarySpace: m.findPrimarySpace,
+  lockClient: m.lockClient,
   listClientTeam: m.listClientTeam,
   listMembersWithSource: m.listMembersWithSource,
   addMember: m.addMember,
@@ -56,6 +58,13 @@ beforeEach(() => {
 });
 
 describe("syncPrimaryMembers", () => {
+  it("locks the client before reading anything", async () => {
+    await syncPrimaryMembers(actor, 1, conn);
+    expect(m.lockClient).toHaveBeenCalledWith(1, conn);
+    const first = m.lockClient.mock.invocationCallOrder[0];
+    for (const f of [m.findPrimarySpace, m.listClientTeam, m.listMembersWithSource, m.effectiveEntitlement]) expect(first).toBeLessThan(f.mock.invocationCallOrder[0]);
+  });
+
   it("returns empty when the client has no primary space", async () => {
     m.findPrimarySpace.mockResolvedValue(null);
     expect(await syncPrimaryMembers(actor, 1, conn)).toEqual({ added: [], removed: [], issues: [] });
@@ -98,6 +107,23 @@ describe("syncPrimaryMembers", () => {
     const r = await syncPrimaryMembers(actor, 1, conn);
     expect(r.added).toEqual([]);
     expect(r.issues).toEqual([{ userId: 1, reason: "role_not_included" }]);
+  });
+
+  it("raises no role_not_included issue (or email) for a manual member whose role is not included", async () => {
+    m.listClientTeam.mockResolvedValue([person(1, "cfo")]);
+    m.listMembersWithSource.mockResolvedValue([member(1, "manual", "member", "cfo")]);
+    const r = await syncPrimaryMembers(actor, 1, conn);
+    expect(r).toEqual({ added: [], removed: [], issues: [] });
+    expect(m.upsertSyncIssue).not.toHaveBeenCalled();
+    expect(m.notify).not.toHaveBeenCalled();
+    expect(m.resolveSyncIssues).toHaveBeenCalledWith(5, [], conn);
+  });
+
+  it("still records role_not_included for a client_team member it removes", async () => {
+    m.listClientTeam.mockResolvedValue([person(1, "cfo")]);
+    m.listMembersWithSource.mockResolvedValue([member(1, "client_team", "member", "cfo")]);
+    const r = await syncPrimaryMembers(actor, 1, conn);
+    expect(r).toEqual({ added: [], removed: [1], issues: [{ userId: 1, reason: "role_not_included" }] });
   });
 
   it("records no_active_package for non-members when there is no entitlement", async () => {

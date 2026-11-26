@@ -2,7 +2,16 @@ import type { RequestHandler, Response } from "express";
 import { queryOne } from "../../database/connection.js";
 import type { AuthUser } from "../../types/auth.types.js";
 import { AppError } from "../../utils/app-error.js";
+import { activeAssignmentSql } from "../access/client-access.js";
 import type { SpaceContext, SpaceKind, SpaceRole, Template } from "./project.types.js";
+
+/**
+ * SQL condition for whether member row `m` of space `s` counts as membership. Manual rows always do; a
+ * client_team row only while the user still holds an active assignment on the space's client, so a lapsed
+ * assignment stops granting access before the next sync removes the row.
+ */
+export const countedMembershipSql = (m: string, s: string) =>
+  `(${m}.source = 'manual' OR EXISTS (SELECT 1 FROM assignments ma WHERE ma.user_id = ${m}.user_id AND ma.client_id = ${s}.client_id AND ${activeAssignmentSql("ma")}))`;
 
 /** Role a user holds in a space: super admins and (outside internal spaces) ops admins act as Administrator; others need membership. */
 export function spaceRoleFor(user: Pick<AuthUser, "role">, kind: SpaceKind, memberRole: SpaceRole | null): SpaceRole | null {
@@ -18,7 +27,7 @@ export function spaceRoleFor(user: Pick<AuthUser, "role">, kind: SpaceKind, memb
 export async function resolveSpace(user: AuthUser, key: string): Promise<SpaceContext> {
   const row = await queryOne<{ id: number; space_key: string; name: string; template: Template; client_id: number | null; kind: SpaceKind; archived_at: string | null; role: SpaceRole | null }>(
     `SELECT s.id, s.space_key, s.name, s.template, s.client_id, s.kind, s.archived_at, m.role
-       FROM project_spaces s LEFT JOIN project_space_members m ON m.space_id = s.id AND m.user_id = ?
+       FROM project_spaces s LEFT JOIN project_space_members m ON m.space_id = s.id AND m.user_id = ? AND ${countedMembershipSql("m", "s")}
       WHERE s.space_key = ?`,
     [user.id, key.toUpperCase()],
   );
