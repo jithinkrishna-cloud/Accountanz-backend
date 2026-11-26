@@ -17,9 +17,9 @@ export const packageBodySchema = z.object({
     .default(["bookkeeper", "finance_manager"])
     .transform((roles) => PACKAGE_ROLES.filter((r) => roles.includes(r))),
   /** Client workspaces the package allows. NULL = unlimited. */
-  workspace_limit: limitSchema,
+  workspace_limit: limitSchema.default(1),
   /** Staff seats per workspace. NULL = unlimited. */
-  staff_per_workspace: limitSchema,
+  staff_per_workspace: limitSchema.default(null),
   is_active: z.boolean().default(true),
   service_ids: z
     .array(z.coerce.number().int().positive())
@@ -27,7 +27,11 @@ export const packageBodySchema = z.object({
     .transform((ids) => [...new Set(ids)]),
 });
 
-export const packageUpdateSchema = packageBodySchema.partial().refine((v) => Object.keys(v).length > 0, "Nothing to update");
+/* Limits are re-declared without defaults: zod 4 keeps .default() under .partial(), which would reset them on every update. */
+export const packageUpdateSchema = packageBodySchema
+  .partial()
+  .extend({ workspace_limit: limitSchema.optional(), staff_per_workspace: limitSchema.optional() })
+  .refine((v) => Object.keys(v).length > 0, "Nothing to update");
 
 export type PackageInput = z.infer<typeof packageBodySchema>;
 export type PackageUpdateInput = z.infer<typeof packageUpdateSchema>;

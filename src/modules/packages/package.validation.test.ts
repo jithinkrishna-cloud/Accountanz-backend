@@ -30,4 +30,27 @@ describe("package limits validation", () => {
     expect(packageUpdateSchema.safeParse({ workspace_limit: 0 }).success).toBe(true);
     expect(packageUpdateSchema.safeParse({ workspace_limit: -1 }).success).toBe(false);
   });
+  it("defaults the limits on create when omitted", () => {
+    const r = packageBodySchema.safeParse(base);
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.workspace_limit).toBe(1);
+      expect(r.data.staff_per_workspace).toBeNull();
+    }
+  });
+
+  it("keeps an explicit null workspace limit as Unlimited on create", () => {
+    const r = packageBodySchema.safeParse({ ...base, workspace_limit: null });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.workspace_limit).toBeNull();
+  });
+
+  it("does not inject limit defaults on update", () => {
+    const r = packageUpdateSchema.safeParse({ name: "Growth" });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect("workspace_limit" in r.data).toBe(false);
+      expect("staff_per_workspace" in r.data).toBe(false);
+    }
+  });
 });
