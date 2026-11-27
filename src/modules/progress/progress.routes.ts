@@ -14,6 +14,11 @@ progressRoutes.get("/", validate({ query: progressQuery }), async (_req: Request
   res.json(await service.listProgress((res.locals.query as ProgressQuery).period));
 });
 
+/** Per-client view of the firm (must come before /:id). */
+progressRoutes.get("/firm", validate({ query: progressQuery }), async (_req: Request, res: Response) => {
+  res.json(await service.firmProgress((res.locals.query as ProgressQuery).period));
+});
+
 progressRoutes.get("/:id", validate({ params: idParam, query: progressQuery }), async (_req: Request, res: Response) => {
   res.json(await service.personProgress((res.locals.params as IdParam).id, (res.locals.query as ProgressQuery).period));
 });

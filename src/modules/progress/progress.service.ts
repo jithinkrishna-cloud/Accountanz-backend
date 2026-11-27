@@ -84,3 +84,80 @@ export async function personProgress(userId: number, period = currentPeriod()) {
     recent_reviews: reviews,
   };
 }
+
+/**
+ * Firm progress: every client's work for the month (with who is on it), plus each staff group's combined numbers.
+ * The per-person view is personProgress; this is the per-client one.
+ */
+export async function firmProgress(period = currentPeriod()) {
+  const [clients, teams, backlog, people, groups] = await Promise.all([
+    repo.firmClients(period),
+    repo.firmTeams(),
+    repo.reviewBacklog(),
+    repo.listSummaries(monthRange(period)),
+    repo.groupMembers(),
+  ]);
+
+  const teamOf = new Map<number, { user_id: number; full_name: string; team_role: string }[]>();
+  for (const t of teams) teamOf.set(t.client_id, [...(teamOf.get(t.client_id) ?? []), { user_id: t.user_id, full_name: t.full_name, team_role: t.team_role }]);
+
+  const items = clients.map((c) => ({
+    client_id: c.client_id,
+    client_name: c.client_name,
+    status: c.status,
+    package_name: c.package_name,
+    period_total: num(c.period_total),
+    period_approved: num(c.period_approved),
+    open_tasks: num(c.open_tasks),
+    overdue: num(c.overdue),
+    awaiting_review: num(c.awaiting_review),
+    closing_status: c.closing_status,
+    team: teamOf.get(c.client_id) ?? [],
+  }));
+
+  // Group numbers are the sum of their members' own numbers (a person in two groups counts in both).
+  const personById = new Map(people.map((p) => [p.user_id, summary(p)]));
+  const groupMap = new Map<number, { group_id: number; name: string; members: { user_id: number; full_name: string }[] }>();
+  for (const g of groups) {
+    const p = personById.get(g.user_id);
+    if (!p) continue; // disabled accounts
+    const entry = groupMap.get(g.group_id) ?? { group_id: g.group_id, name: g.group_name, members: [] };
+    entry.members.push({ user_id: p.user_id, full_name: p.full_name });
+    groupMap.set(g.group_id, entry);
+  }
+  const totals = (ids: number[]) => {
+    const list = ids.map((id) => personById.get(id)!);
+    return {
+      open_tasks: list.reduce((s, p) => s + p.open_tasks, 0),
+      overdue: list.reduce((s, p) => s + p.overdue, 0),
+      awaiting_review: list.reduce((s, p) => s + p.awaiting_review, 0),
+      approved: list.reduce((s, p) => s + p.approved, 0),
+    };
+  };
+  const grouped = new Set(groups.map((g) => g.user_id));
+  const ungrouped = people.filter((p) => !grouped.has(p.user_id) && (num(p.open_tasks) + num(p.awaiting_review) + num(p.approved) > 0));
+
+  const active = items.filter((c) => c.status === "active");
+  return {
+    period,
+    periods: recentPeriods(new Date(), 12),
+    totals: {
+      active_clients: active.length,
+      open_tasks: items.reduce((s, c) => s + c.open_tasks, 0),
+      overdue: items.reduce((s, c) => s + c.overdue, 0),
+      awaiting_review: num(backlog?.waiting),
+      awaiting_over_two_days: num(backlog?.over_two_days),
+      period_total: items.reduce((s, c) => s + c.period_total, 0),
+      period_approved: items.reduce((s, c) => s + c.period_approved, 0),
+      /** Active clients whose month is marked ready or closed. */
+      closing_done: active.filter((c) => c.closing_status !== "open").length,
+    },
+    clients: items,
+    groups: [
+      ...[...groupMap.values()].map((g) => ({ ...g, ...totals(g.members.map((m) => m.user_id)) })),
+      ...(ungrouped.length
+        ? [{ group_id: null, name: "Not in a group", members: ungrouped.map((p) => ({ user_id: p.user_id, full_name: p.full_name })), ...totals(ungrouped.map((p) => p.user_id)) }]
+        : []),
+    ],
+  };
+}

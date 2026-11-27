@@ -128,3 +128,60 @@ export const recentReviews = (userId: number) =>
       LIMIT 10`,
     [userId],
   );
+
+// ───────────────────────────── Firm progress (per client) ─────────────────────────────
+
+/** Every client still being served, with this month's task progress, open work and month-end status. */
+export const firmClients = (period: string) =>
+  query<{
+    client_id: number;
+    client_name: string;
+    status: string;
+    package_name: string | null;
+    period_total: number;
+    period_approved: number;
+    open_tasks: number;
+    overdue: number;
+    awaiting_review: number;
+    closing_status: string;
+  }>(
+    `SELECT c.id AS client_id, COALESCE(c.trade_name, c.legal_name) AS client_name, c.status,
+            (SELECT p.name FROM engagements e JOIN packages p ON p.id = e.package_id
+              WHERE e.client_id = c.id AND e.status = 'active' ORDER BY e.start_date DESC LIMIT 1) AS package_name,
+            COALESCE(SUM(t.period = ?), 0) AS period_total,
+            COALESCE(SUM(t.period = ? AND t.status = 'approved'), 0) AS period_approved,
+            COALESCE(SUM(t.status IN ${OPEN}), 0) AS open_tasks,
+            COALESCE(SUM(t.status IN ${OPEN} AND t.due_date < CURDATE()), 0) AS overdue,
+            COALESCE(SUM(t.status = 'submitted'), 0) AS awaiting_review,
+            COALESCE((SELECT pc.status FROM period_closings pc WHERE pc.client_id = c.id AND pc.period = ?), 'open') AS closing_status
+       FROM clients c
+       LEFT JOIN tasks t ON t.client_id = c.id
+      WHERE c.status <> 'exited'
+      GROUP BY c.id, c.trade_name, c.legal_name, c.status
+      ORDER BY client_name`,
+    [period, period, period],
+  );
+
+/** Who is currently assigned to each client. */
+export const firmTeams = () =>
+  query<{ client_id: number; user_id: number; full_name: string; team_role: string }>(
+    `SELECT a.client_id, u.id AS user_id, u.full_name, a.team_role
+       FROM assignments a JOIN users u ON u.id = a.user_id
+      WHERE ${activeAssignmentSql("a")}
+      ORDER BY FIELD(a.team_role, 'cfo', 'finance_manager', 'reviewer', 'bookkeeper'), u.full_name`,
+  );
+
+/** Tasks waiting for a reviewer, and how many have waited more than two days. */
+export const reviewBacklog = () =>
+  queryOne<{ waiting: number; over_two_days: number }>(
+    `SELECT COUNT(*) AS waiting, COALESCE(SUM(submitted_at < UTC_TIMESTAMP() - INTERVAL 2 DAY), 0) AS over_two_days
+       FROM tasks WHERE status = 'submitted'`,
+  );
+
+/** Staff groups and their members. */
+export const groupMembers = () =>
+  query<{ group_id: number; group_name: string; user_id: number }>(
+    `SELECT g.id AS group_id, g.name AS group_name, m.user_id
+       FROM staff_groups g JOIN staff_group_members m ON m.group_id = g.id
+      ORDER BY g.name`,
+  );
