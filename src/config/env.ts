@@ -29,44 +29,6 @@ const schema = z.object({
   MAIL_REDIRECT_TO: z.email().optional(),
   /** Vercel Blob read-write token for the private file store (agreements, documents). Uploads fail without it. */
   BLOB_READ_WRITE_TOKEN: z.string().min(1).optional(),
-  /** JournL API base URL (e.g. https://testapi.bizpolebooks.com). Without it, owners can't sign in with JournL to connect. */
-  JOURNL_API_URL: z.url().optional(),
-  /** 32-byte base64 key that encrypts stored JournL session tokens. Without it, JournL data can't be read. */
-  JOURNL_TOKEN_KEY: z.string().refine((v) => Buffer.from(v, "base64").length === 32, "JOURNL_TOKEN_KEY must be 32 bytes, base64").optional(),
-  /**
-   * JournL web address for "Open in JournL" (https). JournL picks the company from the login, not the URL, so today
-   * this is just its sign-in page; `{companyId}` is filled in if JournL ever adds per-company links. The link never
-   * carries a token. Unset = the button says the link isn't configured.
-   */
-  JOURNL_APP_URL_TEMPLATE: z
-    .string()
-    .optional()
-    .refine((v) => !v || /^https:\/\//.test(v), "JOURNL_APP_URL_TEMPLATE must start with https://"),
-  /**
-   * Master switch for the whole JournL integration (connection codes, JournL Books, corrections, JournL permissions).
-   * Off by default: accountants sign in to JournL directly, and Accountanz only links to JournL's sign-in page.
-   */
-  JOURNL_INTEGRATION_ENABLED: z
-    .enum(["true", "false", "1", "0"])
-    .default("false")
-    .transform((v) => v === "true" || v === "1"),
-  /** Master switch for writing corrections to JournL. Off unless explicitly enabled. */
-  JOURNL_WRITES_ENABLED: z
-    .enum(["true", "false", "1", "0"])
-    .default("false")
-    .transform((v) => v === "true" || v === "1"),
-  /** JournL API hostnames that corrections may be written to, comma-separated. Guards against writing to production by accident. */
-  JOURNL_WRITE_HOSTS: z
-    .string()
-    .default("testapi.bizpolebooks.com")
-    .transform((v) => v.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)),
-  /** Bizpole Books Integration API base, ending in /integration/v1 (e.g. https://testapi.bizpolebooks.com/integration/v1). */
-  BIZPOLE_API_BASE_URL: z.url().optional(),
-  /** Accountanz's partner credentials, issued by Bizpole. Server-side only; never sent to a browser or logged. */
-  BIZPOLE_CLIENT_ID: z.string().min(1).optional(),
-  BIZPOLE_CLIENT_SECRET: z.string().min(1).optional(),
-  /** 32-byte base64 key that encrypts stored Bizpole access and refresh tokens (separate from JOURNL_TOKEN_KEY). */
-  BIZPOLE_TOKEN_KEY: z.string().refine((v) => Buffer.from(v, "base64").length === 32, "BIZPOLE_TOKEN_KEY must be 32 bytes, base64").optional(),
   /** Easebuzz merchant credentials. Without them, "Pay now" says online payments aren't set up. */
   EASEBUZZ_KEY: z.string().min(1).optional(),
   EASEBUZZ_SALT: z.string().min(1).optional(),

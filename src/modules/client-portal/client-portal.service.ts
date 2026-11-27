@@ -6,7 +6,6 @@ import { recordAudit } from "../audit/audit.service.js";
 import * as meetingRepo from "../communication/communication.repository.js";
 import { editOwnMessage, mentionableFor, messagesWithMentions, resolveMentions } from "../communication/communication.service.js";
 import { notifyApprovalDecided, notifyClientMessage, notifyDocumentReceived, notifyMeetingRequested, notifyMentioned } from "../notifications/notification.service.js";
-import { setClientSoftware } from "../integrations/integration.repository.js";
 import { insertEngagement, updateEngagement as updateEngagementRow } from "../engagements/engagement.repository.js";
 import { acceptByClient } from "../onboarding/onboarding.service.js";
 import { assertUploadFolder, listDocumentShares } from "../document-folders/document-folder.service.js";
@@ -53,7 +52,6 @@ export async function getBusiness(ctx: ClientContext) {
 }
 
 export const getTeam = (ctx: ClientContext) => repo.team(ctx.clientId);
-export const getSoftware = (ctx: ClientContext) => repo.software(ctx.clientId);
 /** The company's files, each with the accountants it is shared with directly. */
 export async function getDocuments(ctx: ClientContext) {
   const [docs, shares] = await Promise.all([repo.listDocuments(ctx.clientId), listDocumentShares(ctx.clientId)]);

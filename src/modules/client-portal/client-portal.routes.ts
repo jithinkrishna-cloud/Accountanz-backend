@@ -12,7 +12,6 @@ import { requireContext } from "./client-portal.service.js";
 import { exploreRoutes } from "../accountant-requests/accountant-request.routes.js";
 import { messageParam } from "../communication/communication.validation.js";
 import { approvalDecisionSchema, clientTaskSchema, meetingRequestSchema, newThreadSchema, portalClientUpdateSchema, replySchema, settingsSchema, tasksQuerySchema, uploadMetaSchema } from "./client-portal.validation.js";
-import { bizpoleOwnerRoutes } from "../integrations/bizpole/bizpole.routes.js";
 import { startInvoicePayment } from "../payments/easebuzz/easebuzz.service.js";
 import { attachDocumentSchema, createFolderSchema, moveDocumentSchema, renameFolderSchema, shareFolderSchema } from "../document-folders/document-folder.validation.js";
 
@@ -34,8 +33,6 @@ clientPortalRoutes.get("/dashboard", c.dashboard);
 clientPortalRoutes.get("/business", c.business);
 clientPortalRoutes.get("/team", c.team);
 clientPortalRoutes.get("/team/:id", validate({ params: idParam }), c.teamMember);
-clientPortalRoutes.get("/software", c.software);
-clientPortalRoutes.use("/software/bizpole", bizpoleOwnerRoutes);
 clientPortalRoutes.get("/documents", c.documents);
 clientPortalRoutes.post("/documents", documentUpload(), multipartFields(uploadMetaSchema), c.upload);
 clientPortalRoutes.get("/documents/:id/file", validate({ params: idParam }), c.downloadDocument);

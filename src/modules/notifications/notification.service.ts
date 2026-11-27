@@ -1,11 +1,9 @@
-﻿import { approvalDecidedEmail, approvalRequestedEmail, clientMessageEmail, companyRegisteredEmail, documentRequestedEmail, meetingCancelledEmail, meetingRequestDeclinedEmail, meetingRequestedEmail, meetingScheduledEmail, mentionedEmail, proposalAcceptedEmail, proposalSentEmail, reportPublishedEmail, teamMessageEmail, documentReceivedEmail, sharedWithYouEmail, invoiceIssuedEmail, taskAssignedEmail, taskReviewedEmail, taskSubmittedEmail, correctionDecidedEmail, correctionOutcomeEmail, correctionSubmittedEmail, workspaceSyncIssueEmail } from "../../emails/templates.js";
+﻿import { approvalDecidedEmail, approvalRequestedEmail, clientMessageEmail, companyRegisteredEmail, documentRequestedEmail, meetingCancelledEmail, meetingRequestDeclinedEmail, meetingRequestedEmail, meetingScheduledEmail, mentionedEmail, proposalAcceptedEmail, proposalSentEmail, reportPublishedEmail, teamMessageEmail, documentReceivedEmail, sharedWithYouEmail, invoiceIssuedEmail, taskAssignedEmail, taskReviewedEmail, taskSubmittedEmail, workspaceSyncIssueEmail } from "../../emails/templates.js";
 import { logger } from "../../utils/logger.js";
 import { sendMail } from "../../utils/mailer.js";
 import { humanize } from "../../utils/format.js";
 import { findMeetingRequest } from "../communication/communication.repository.js";
 import { findTask } from "../tasks/task.repository.js";
-import { events as correctionEvents, findCorrection, listApproverContacts } from "../journl-corrections/correction.repository.js";
-import { correctionRef } from "../journl-corrections/correction.types.js";
 import * as repo from "./notification.repository.js";
 
 async function safely(name: string, fn: () => Promise<unknown>) {
@@ -277,52 +275,6 @@ export const notifyTeamMessage = (d: { clientId: number; threadId: number; messa
       const content = teamMessageEmail({ recipientName: r.full_name, clientName, author: d.author, subject: d.subject, body: d.body, forClient });
       await sendMail({ to: r.email, ...content, idempotencyKey: `team-message/${d.messageId}/${r.email}` });
     }
-  });
-
-/** A JournL correction was submitted: its client's reviewers today (finance manager / reviewer / CFO), never the preparer, never ops_admin. */
-export const notifyCorrectionSubmitted = (correctionId: number) =>
-  safely("correction-submitted", async () => {
-    const c = await findCorrection(correctionId);
-    if (!c || c.status !== "pending_approval") return;
-    const [clientName, preparer, approvers] = await Promise.all([repo.findClientName(c.client_id), repo.findActiveContact(c.initiated_by), listApproverContacts(c.client_id, c.initiated_by)]);
-    const submission = (await correctionEvents(correctionId)).filter((e) => e.to_status === "pending_approval").length;
-    for (const a of approvers) {
-      const content = correctionSubmittedEmail({ recipientName: a.full_name, clientName, clientId: c.client_id, ref: correctionRef(c.id), kind: c.kind, purpose: c.purpose, preparedBy: preparer?.full_name ?? "A team member", reason: c.reason });
-      await sendMail({ to: a.email, ...content, idempotencyKey: `correction-submitted/${correctionId}/${submission}/${a.email}` });
-    }
-  });
-
-/** A reviewer sent a correction back or rejected it: tell the preparer, with the comment. */
-export const notifyCorrectionDecided = (correctionId: number) =>
-  safely("correction-decided", async () => {
-    const c = await findCorrection(correctionId);
-    if (!c || (c.status !== "draft" && c.status !== "rejected")) return;
-    const last = (await correctionEvents(correctionId)).at(-1);
-    if (!last || last.from_status !== "pending_approval") return;
-    const [to, decider, clientName] = await Promise.all([repo.findActiveContact(c.initiated_by), repo.findActiveContact(last.actor_id), repo.findClientName(c.client_id)]);
-    if (!to) return;
-    const content = correctionDecidedEmail({ recipientName: to.full_name, clientName, clientId: c.client_id, ref: correctionRef(c.id), decision: c.status === "rejected" ? "rejected" : "sent_back", decidedBy: decider?.full_name ?? "A reviewer", comment: c.review_comment });
-    await sendMail({ to: to.email, ...content, idempotencyKey: `correction-decided/${correctionId}/${last.id}` });
-  });
-
-/** An approved correction reached an outcome (posted, refused by JournL, cancelled as stale, or unknown): tell the preparer. Never throws. */
-export const notifyCorrectionOutcome = (correctionId: number) =>
-  safely("correction-outcome", async () => {
-    const c = await findCorrection(correctionId);
-    if (!c) return;
-    const outcome =
-      c.status === "posted" ? "posted"
-      : c.status === "unknown" ? "unknown"
-      : c.status === "rejected" && c.rejected_by_source === "journl" ? "rejected_by_journl"
-      : c.status === "rejected" && c.rejected_by_source === "stale" ? "stale"
-      : null;
-    if (!outcome) return;
-    const last = (await correctionEvents(correctionId)).at(-1);
-    if (!last || last.to_status !== c.status) return;
-    const [to, clientName] = await Promise.all([repo.findActiveContact(c.initiated_by), repo.findClientName(c.client_id)]);
-    if (!to) return;
-    const content = correctionOutcomeEmail({ recipientName: to.full_name, clientName, clientId: c.client_id, ref: correctionRef(c.id), outcome, voucherId: c.journl_voucher_id, message: c.journl_message });
-    await sendMail({ to: to.email, ...content, idempotencyKey: `correction-outcome/${correctionId}/${last.id}` });
   });
 
 const SYNC_REASON_LABEL = {

@@ -12,7 +12,6 @@ import { env, isProd } from "../../config/env.js";
 import { logger } from "../../utils/logger.js";
 import { execute, pool, query, withTransaction, type Param } from "../connection.js";
 import { addApprovals, addReports, deleteReportFiles } from "./demo-deliverables.js";
-import { JOURNL_AREAS, JOURNL_FEATURE_LIST } from "../../modules/integrations/journl-features.js";
 
 const ins = async (conn: PoolConnection, table: string, row: Record<string, Param>) => {
   const keys = Object.keys(row);
@@ -172,26 +171,6 @@ async function main() {
       await ensure(conn, "task_template_items", { template_id: bookkeepingTpl, title }, { checklist: JSON.stringify(checklist), client_visible: visible, sort_order: k + 1 });
     }
 
-    // ── JournL features, one permission each (same list as migration 021; restores them if a previous seed truncated them) ──
-    const areaOrder = Object.fromEntries(JOURNL_AREAS.map((a, i) => [a.key, (i + 1) * 100]));
-    for (const [i, f] of JOURNL_FEATURE_LIST.entries()) {
-      await insIgnore(conn, "journl_modules", {
-        module_key: f.key,
-        label: f.name,
-        group_key: f.area,
-        sort_order: areaOrder[f.area]! + i,
-        default_policy: f.restricted ? "restricted" : "configurable",
-        journl_module_id: String(f.id),
-        verified_at: new Date(),
-      });
-    }
-    await conn.query(
-      `INSERT IGNORE INTO journl_module_actions (module_key, action_key, label, journl_action_id, verified_at)
-         SELECT module_key, 'view', 'View (read-only)', 'view', UTC_TIMESTAMP() FROM journl_modules`,
-    );
-
-    const grantableModules = (await query<{ module_key: string }>(`SELECT module_key FROM journl_modules WHERE default_policy <> 'restricted' ORDER BY sort_order`, [], conn)).map((m) => m.module_key);
-
     // ── Clients ──
     const clientDefs = [
       ["ABC Traders Pvt Ltd", "ABC Traders", "32ABCDE1234F1Z5", "ABCDE1234F", "Kerala", "active", "journl", growth, 48000],
@@ -289,13 +268,7 @@ async function main() {
 
       const bookkeeper = bookkeepers[i % bookkeepers.length]!;
       const reviewer = reviewers[i % reviewers.length]!;
-      const bookkeeperAssignment = await ins(conn, "assignments", { client_id: clientId, user_id: bookkeeper, team_role: "bookkeeper", valid_from: dayOf(period(-6), 1), journl_access: software === "journl" });
-      // JournL clients: the bookkeeper may view every grantable JournL module (Assignments → JournL modules).
-      if (software === "journl") {
-        for (const module_key of grantableModules) {
-          await ins(conn, "assignment_module_permissions", { assignment_id: bookkeeperAssignment, module_key, allowed_actions: JSON.stringify(["view"]), status: "active", granted_by: admin, granted_at: new Date() });
-        }
-      }
+      await ins(conn, "assignments", { client_id: clientId, user_id: bookkeeper, team_role: "bookkeeper", valid_from: dayOf(period(-6), 1), journl_access: software === "journl" });
       await ins(conn, "assignments", { client_id: clientId, user_id: reviewer, team_role: "finance_manager", valid_from: dayOf(period(-6), 1) });
       if (i === 0) await ins(conn, "assignments", { client_id: clientId, user_id: sneha, team_role: "cfo", valid_from: dayOf(period(-6), 1) });
 

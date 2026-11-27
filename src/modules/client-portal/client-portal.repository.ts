@@ -94,30 +94,6 @@ export const team = (clientId: number) =>
     [clientId],
   );
 
-export const software = (clientId: number) =>
-  query<{ provider: string; external_org_name: string | null; external_org_id: string | null; status: string; last_health_check: string | null; verified_at: string | null; authorized_at: string | null; session_until: string | null }>(
-    `SELECT provider, external_org_name, external_org_id, status, last_health_check, verified_at, authorized_at,
-            CASE WHEN access_token_enc IS NOT NULL AND token_expires_at > UTC_TIMESTAMP() THEN token_expires_at END AS session_until
-       FROM integration_connections WHERE client_id = ? AND provider = 'journl' ORDER BY provider`,
-    [clientId],
-  );
-
-export const lockJournlConnection = (clientId: number, conn: PoolConnection) =>
-  queryOne<{ id: number; status: string; external_org_id: string | null }>(
-    `SELECT id, status, external_org_id FROM integration_connections WHERE client_id = ? AND provider = 'journl' FOR UPDATE`,
-    [clientId],
-    conn,
-  );
-
-/** The owner withdrew access; the organisation details stay so they can reconnect, the verification does not. */
-export async function disconnectJournlConnection(id: number, conn: PoolConnection) {
-  await execute(
-    `UPDATE integration_connections SET status = 'disconnected', disconnected_at = UTC_TIMESTAMP(), last_error = NULL,
-            verified_by = NULL, verified_at = NULL, verification_note = NULL, authorized_by = NULL, authorized_at = NULL, access_token_enc = NULL, token_expires_at = NULL WHERE id = ?`,
-    [id],
-    conn,
-  );
-}
 
 // ── Documents & requests ──
 export const listDocuments = (clientId: number) =>

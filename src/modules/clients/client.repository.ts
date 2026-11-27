@@ -1,5 +1,4 @@
 import type { PoolConnection } from "mysql2/promise";
-import { journlLink } from "../integrations/journl-link.js";
 import { activeAssignmentSql } from "../access/client-access.js";
 import { execute, pool, query, queryOne, type Param } from "../../database/connection.js";
 import { offsetOf, type Paged } from "../../utils/pagination.js";
@@ -229,7 +228,7 @@ export async function upsertFinancialProfile(clientId: number, input: FinancialP
 export async function getClientDetail(id: number): Promise<ClientDetail | null> {
   const client = await findClientById(id);
   if (!client) return null;
-  const [branches, portalUsers, team, tax_details, stakeholders, financial_profile, journlConn] = await Promise.all([
+  const [branches, portalUsers, team, tax_details, stakeholders, financial_profile] = await Promise.all([
     query<ClientBranchRow>(`SELECT id, name, gstin, external_branch_ref FROM client_branches WHERE client_id = ? ORDER BY name`, [id]),
     query<ClientDetail["portalUsers"][number]>(
       `SELECT u.id AS user_id, u.full_name, u.email, cu.role, cu.can_approve
@@ -247,12 +246,6 @@ export async function getClientDetail(id: number): Promise<ClientDetail | null> 
     getTaxDetails(id),
     listStakeholders(id),
     getFinancialProfile(id),
-    queryOne<{ status: string; external_org_id: string | null; external_org_name: string | null; session_until: string | null }>(
-      `SELECT status, external_org_id, external_org_name,
-              CASE WHEN access_token_enc IS NOT NULL AND token_expires_at > UTC_TIMESTAMP() THEN token_expires_at END AS session_until
-         FROM integration_connections WHERE client_id = ? AND provider = 'journl'`,
-      [id],
-    ),
   ]);
   const coverage = (await teamCoverage([id])).get(id);
   return {
@@ -266,13 +259,6 @@ export async function getClientDetail(id: number): Promise<ClientDetail | null> 
     tax_details,
     stakeholders,
     financial_profile,
-    journl: {
-      status: journlConn?.status ?? null,
-      org_id: journlConn?.external_org_id ?? null,
-      org_name: journlConn?.external_org_name ?? null,
-      session_until: journlConn?.session_until ?? null,
-      link: journlLink(journlConn),
-    },
   };
 }
 

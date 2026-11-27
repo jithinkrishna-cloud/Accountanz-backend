@@ -22,7 +22,6 @@ vi.mock("../notifications/notification.service.js", () => ({ notifyDocumentRecei
 vi.mock("../document-folders/document-folder.service.js", () => ({ assertUploadFolder: m.assertUploadFolder, listDocumentShares: vi.fn() }));
 vi.mock("../communication/communication.repository.js", () => ({}));
 vi.mock("../communication/communication.service.js", () => ({}));
-vi.mock("../integrations/integration.repository.js", () => ({}));
 vi.mock("../engagements/engagement.repository.js", () => ({}));
 vi.mock("../onboarding/onboarding.service.js", () => ({}));
 vi.mock("../onboarding/onboarding.repository.js", () => ({}));

@@ -18,14 +18,12 @@ const m = vi.hoisted(() => ({
   replaceMembers: vi.fn(),
   deleteGroup: vi.fn(),
   removeUserFromAllGroups: vi.fn(),
-  onAssignmentCreated: vi.fn(),
   recordAudit: vi.fn(),
   conn: { tag: "tx" },
 }));
 
 vi.mock("../../database/connection.js", () => ({ withTransaction: (fn: (c: unknown) => unknown) => fn(m.conn) }));
 vi.mock("../audit/audit.service.js", () => ({ recordAudit: m.recordAudit }));
-vi.mock("../journl-access-tasks/journl-access-task.service.js", () => ({ onAssignmentCreated: m.onAssignmentCreated }));
 vi.mock("../projects/client-space-hooks.js", () => ({ onClientTeamChanged: vi.fn() }));
 vi.mock("../clients/client.repository.js", () => ({ findClientById: m.findClientById }));
 vi.mock("../assignments/assignment.repository.js", () => ({
@@ -100,8 +98,6 @@ describe("assignGroup", () => {
       5,
     );
     expect(m.insertAssignment).toHaveBeenCalledWith(expect.objectContaining({ user_id: 11, team_role: "bookkeeper", journl_access: true }), m.conn, 5);
-    // Each new assignment gets its JournL to-do decision (Arun has JournL access).
-    expect(m.onAssignmentCreated).toHaveBeenCalledWith(actor, { id: 101, client_id: 22, user_id: 11 }, true, m.conn);
     expect(r).toMatchObject({ client_id: 22, client_name: "techo", skipped: [] });
     expect(r.created.map((c) => c.full_name)).toEqual(["Meera Joshi", "Arun Menon"]);
     // One entry per assignment plus one for the group.

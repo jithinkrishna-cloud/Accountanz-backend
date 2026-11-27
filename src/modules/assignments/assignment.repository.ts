@@ -1,5 +1,3 @@
-import { latestTaskSql } from "../journl-access-tasks/journl-access-task.repository.js";
-import { accessState } from "../journl-access-tasks/journl-access-task.types.js";
 import { activeAssignmentSql } from "../access/client-access.js";
 import type { PoolConnection } from "mysql2/promise";
 import { execute, pool, query, queryOne, type Param } from "../../database/connection.js";
@@ -19,7 +17,7 @@ const SELECT = `
   SELECT a.id, a.client_id, COALESCE(c.trade_name, c.legal_name) AS client_name, c.status AS client_status,
          a.user_id, u.full_name, u.email, u.portal_role, a.team_role, a.valid_from, a.valid_to, a.status,
          ${PHASE} AS phase, a.journl_access, a.replaced_by_assignment_id, ru.full_name AS replaced_by_name,
-         a.source_group_id, sg.name AS source_group_name, ${latestTaskSql("a")} AS journl_task, a.created_at
+         a.source_group_id, sg.name AS source_group_name, a.created_at
     FROM assignments a
     JOIN clients c ON c.id = a.client_id
     JOIN users u ON u.id = a.user_id
@@ -27,11 +25,7 @@ const SELECT = `
     LEFT JOIN users ru ON ru.id = ra.user_id
     LEFT JOIN staff_groups sg ON sg.id = a.source_group_id`;
 
-const toRow = ({ journl_task, ...r }: AssignmentRow & { journl_task?: string | null }): AssignmentRow => ({
-  ...r,
-  journl_access: Boolean(r.journl_access),
-  journl_access_state: accessState(Boolean(r.journl_access), journl_task),
-});
+const toRow = (r: AssignmentRow): AssignmentRow => ({ ...r, journl_access: Boolean(r.journl_access) });
 
 export async function listAssignments(q: AssignmentListQuery): Promise<Paged<AssignmentRow>> {
   const where: string[] = [];

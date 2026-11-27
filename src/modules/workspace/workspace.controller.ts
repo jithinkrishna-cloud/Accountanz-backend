@@ -1,9 +1,7 @@
 import type { Request, Response } from "express";
 import type { IdParam } from "../../middleware/validate.js";
 import * as service from "./workspace.service.js";
-import { requestContext } from "../audit/journl-read-audit.js";
-import type { JournlDataQuery } from "../integrations/integration.validation.js";
-import type { ChecklistQuery, ClosingParams, JournlViewParams, JournlViewQuery, ReadinessInput } from "./workspace.validation.js";
+import type { ChecklistQuery, ClosingParams, ReadinessInput } from "./workspace.validation.js";
 
 export const dashboard = async (req: Request, res: Response) => void res.json(await service.dashboard(req.user!));
 export const clients = async (req: Request, res: Response) => void res.json({ items: await service.myClients(req.user!) });
@@ -15,13 +13,3 @@ export async function setReadiness(req: Request, res: Response) {
   const p = res.locals.params as ClosingParams;
   res.json(await service.setReadiness(req.user!, p.clientId, p.period, (req.body as ReadinessInput).status, (req.body as ReadinessInput).reason));
 }
-
-/** Read-only JournL books for this client (GET only, live from JournL). */
-export const clientJournlData = async (req: Request, res: Response) =>
-  void res.json(await service.clientJournlData(req.user!, (res.locals.params as IdParam).id, res.locals.query as JournlDataQuery, requestContext(req)));
-
-export const journlWorkspace = async (req: Request, res: Response) => void res.json(await service.journlWorkspace(req.user!));
-export const clientJournlView = async (req: Request, res: Response) => {
-  const p = res.locals.params as JournlViewParams;
-  res.json(await service.clientJournlView(req.user!, p.id, p.view, res.locals.query as JournlViewQuery, requestContext(req)));
-};

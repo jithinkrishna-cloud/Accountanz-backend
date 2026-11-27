@@ -105,21 +105,3 @@ export const clientContacts = (clientId: number) =>
       WHERE cu.client_id = ? AND u.status = 'active' ORDER BY cu.role = 'owner' DESC, u.full_name`,
     [clientId],
   );
-
-/** True when this person has a current assignment on the client with JournL access switched on. */
-export async function hasJournlAccess(userId: number, clientId: number) {
-  const row = await queryOne<{ ok: number }>(
-    `SELECT 1 AS ok FROM assignments a WHERE a.user_id = ? AND a.client_id = ? AND a.journl_access = 1 AND ${activeAssignmentSql("a")} LIMIT 1`,
-    [userId, clientId],
-  );
-  return !!row;
-}
-
-/** The client's JournL connection, and until when Accountanz holds a session to read it. */
-export const journlConnection = (clientId: number) =>
-  queryOne<{ id: number; status: string; external_org_id: string | null; external_org_name: string | null; session_until: string | null }>(
-    `SELECT id, status, external_org_id, external_org_name,
-            CASE WHEN access_token_enc IS NOT NULL AND token_expires_at > UTC_TIMESTAMP() THEN token_expires_at END AS session_until
-       FROM integration_connections WHERE client_id = ? AND provider = 'journl'`,
-    [clientId],
-  );
