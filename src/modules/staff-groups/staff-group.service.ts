@@ -107,7 +107,7 @@ export async function assignGroup(actor: AuthUser, id: number, input: AssignGrou
         continue;
       }
       const assignmentId = await assignmentRepo.insertAssignment(
-        { client_id: client.id, user_id: m.user_id, team_role: m.team_role, valid_from: input.valid_from, valid_to: input.valid_to, journl_access: m.journl_access },
+        { client_id: client.id, user_id: m.user_id, team_role: m.team_role, valid_from: input.valid_from, valid_to: input.valid_to },
         conn,
         id,
       );
@@ -118,7 +118,7 @@ export async function assignGroup(actor: AuthUser, id: number, input: AssignGrou
           entityType: "Assignment",
           entityId: assignmentId,
           clientId: client.id,
-          details: `${m.full_name} as ${role}, ${input.valid_from} to ${input.valid_to ?? "open"}${m.journl_access ? ", JournL access" : ""}; from group ${group.name}`,
+          details: `${m.full_name} as ${role}, ${input.valid_from} to ${input.valid_to ?? "open"}; from group ${group.name}`,
         },
         conn,
       );

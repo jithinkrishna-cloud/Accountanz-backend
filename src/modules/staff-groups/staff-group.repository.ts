@@ -21,7 +21,7 @@ export async function listGroups(ids?: number[], db: Db = pool): Promise<StaffGr
   const in_ = placeholders(gids.length);
   const [members, clients] = await Promise.all([
     query<StaffGroupMember & { group_id: number }>(
-      `SELECT m.group_id, m.user_id, u.full_name, u.email, m.team_role, m.journl_access,
+      `SELECT m.group_id, m.user_id, u.full_name, u.email, m.team_role,
               (u.status = 'active' AND sp.staff_type = 'accountant' AND sp.verification_status = 'verified') AS assignable
          FROM staff_group_members m JOIN users u ON u.id = m.user_id LEFT JOIN staff_profiles sp ON sp.user_id = u.id
         WHERE m.group_id IN (${in_})
@@ -42,7 +42,7 @@ export async function listGroups(ids?: number[], db: Db = pool): Promise<StaffGr
     ...g,
     members: members
       .filter((m) => m.group_id === g.id)
-      .map(({ group_id: _g, ...m }) => ({ ...m, journl_access: Boolean(m.journl_access), assignable: Boolean(m.assignable) })),
+      .map(({ group_id: _g, ...m }) => ({ ...m, assignable: Boolean(m.assignable) })),
     clients: clients.filter((c) => c.group_id === g.id).map(({ group_id: _g, ...c }) => c),
   }));
 }
@@ -78,7 +78,7 @@ export async function updateGroup(id: number, input: StaffGroupInput, db: Db) {
 export async function replaceMembers(id: number, members: StaffGroupInput["members"], db: Db) {
   await execute(`DELETE FROM staff_group_members WHERE group_id = ?`, [id], db);
   for (const m of members) {
-    await execute(`INSERT INTO staff_group_members (group_id, user_id, team_role, journl_access) VALUES (?, ?, ?, ?)`, [id, m.user_id, m.team_role, m.journl_access], db);
+    await execute(`INSERT INTO staff_group_members (group_id, user_id, team_role) VALUES (?, ?, ?)`, [id, m.user_id, m.team_role], db);
   }
 }
 

@@ -39,8 +39,6 @@ const MASTER_TABLES = new Set([
   "task_templates",
   "task_template_items",
   "knowledge_articles",
-  "journl_modules",
-  "journl_module_actions",
   "users", // staff accounts kept; client logins deleted below
   "staff_profiles",
   // Workspace: the team's own project work, not demo accounting data. Client links are re-pointed after reseeding.
@@ -268,7 +266,7 @@ async function main() {
 
       const bookkeeper = bookkeepers[i % bookkeepers.length]!;
       const reviewer = reviewers[i % reviewers.length]!;
-      await ins(conn, "assignments", { client_id: clientId, user_id: bookkeeper, team_role: "bookkeeper", valid_from: dayOf(period(-6), 1), journl_access: software === "journl" });
+      await ins(conn, "assignments", { client_id: clientId, user_id: bookkeeper, team_role: "bookkeeper", valid_from: dayOf(period(-6), 1) });
       await ins(conn, "assignments", { client_id: clientId, user_id: reviewer, team_role: "finance_manager", valid_from: dayOf(period(-6), 1) });
       if (i === 0) await ins(conn, "assignments", { client_id: clientId, user_id: sneha, team_role: "cfo", valid_from: dayOf(period(-6), 1) });
 

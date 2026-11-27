@@ -5,7 +5,6 @@ import { optionalText } from "../../utils/zod-helpers.js";
 const member = z.object({
   user_id: z.coerce.number().int().positive("Choose a person"),
   team_role: z.enum(TEAM_ROLES, "Choose a team role"),
-  journl_access: z.boolean().default(false),
 });
 
 export const staffGroupBodySchema = z.object({

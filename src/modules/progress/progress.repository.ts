@@ -1,4 +1,7 @@
-import { query, queryOne, type Param } from "../../database/connection.js";
+import { pool, query, queryOne, type Param } from "../../database/connection.js";
+
+/** Pool by default; tests pass a transaction connection. */
+type Db = Parameters<typeof query>[2];
 import { activeAssignmentSql } from "../access/client-access.js";
 
 /** Task statuses that still need work from the assignee. */
@@ -50,11 +53,11 @@ const rangeParams = (m: MonthRange): Param[] => [m.start, m.end, m.start, m.end,
 export const listSummaries = (m: MonthRange) =>
   query<SummaryRow>(`${SUMMARY} WHERE u.status = 'active' ORDER BY u.full_name`, rangeParams(m));
 
-export const findSummary = (userId: number, m: MonthRange) =>
-  queryOne<SummaryRow>(`${SUMMARY} WHERE u.id = ?`, [...rangeParams(m), userId]);
+export const findSummary = (userId: number, m: MonthRange, db: Db = pool) =>
+  queryOne<SummaryRow>(`${SUMMARY} WHERE u.id = ?`, [...rangeParams(m), userId], db);
 
 /** Each client the person is currently assigned to, with their own tasks there. */
-export const clientBreakdown = (userId: number, period: string) =>
+export const clientBreakdown = (userId: number, period: string, db: Db = pool) =>
   query<{
     client_id: number;
     client_name: string;
@@ -78,6 +81,7 @@ export const clientBreakdown = (userId: number, period: string) =>
       GROUP BY c.id, c.trade_name, c.legal_name, x.roles
       ORDER BY client_name`,
     [period, period, userId, userId],
+    db,
   );
 
 /** Approved and returned reviews, and time logged, per month from `from` (inclusive) to `to` (exclusive). */
@@ -132,7 +136,7 @@ export const recentReviews = (userId: number) =>
 // ───────────────────────────── Firm progress (per client) ─────────────────────────────
 
 /** Every client still being served, with this month's task progress, open work and month-end status. */
-export const firmClients = (period: string) =>
+export const firmClients = (period: string, db: Db = pool) =>
   query<{
     client_id: number;
     client_name: string;
@@ -160,6 +164,7 @@ export const firmClients = (period: string) =>
       GROUP BY c.id, c.trade_name, c.legal_name, c.status
       ORDER BY client_name`,
     [period, period, period],
+    db,
   );
 
 /** Who is currently assigned to each client. */
@@ -244,7 +249,7 @@ const VIEW_SQL: Record<TaskView, string> = {
 };
 
 /** One page of the person's tasks for a view, with how many tasks each view holds. */
-export async function personTasks(userId: number, q: { view: TaskView; q?: string; clientId?: number; page: number; pageSize: number }) {
+export async function personTasks(userId: number, q: { view: TaskView; q?: string; clientId?: number; page: number; pageSize: number }, db: Db = pool) {
   const where = ["t.assignee_id = ?", VIEW_SQL[q.view]];
   const params: Param[] = [userId];
   if (q.q) (where.push("(t.title LIKE ? OR c.legal_name LIKE ? OR c.trade_name LIKE ?)"), params.push(`%${q.q}%`, `%${q.q}%`, `%${q.q}%`));
@@ -262,14 +267,16 @@ export async function personTasks(userId: number, q: { view: TaskView; q?: strin
         ORDER BY overdue DESC, (t.status = 'approved'), t.due_date IS NULL, t.due_date, t.id DESC
         LIMIT ? OFFSET ?`,
       [...params, q.pageSize, (q.page - 1) * q.pageSize],
+      db,
     ),
-    queryOne<{ n: number }>(`SELECT COUNT(*) AS n FROM tasks t JOIN clients c ON c.id = t.client_id WHERE ${whereSql}`, params),
+    queryOne<{ n: number }>(`SELECT COUNT(*) AS n FROM tasks t JOIN clients c ON c.id = t.client_id WHERE ${whereSql}`, params, db),
     queryOne<Record<TaskView, number>>(
       `SELECT COALESCE(SUM(${VIEW_SQL.open}), 0) AS open, COALESCE(SUM(${VIEW_SQL.overdue}), 0) AS overdue,
               COALESCE(SUM(${VIEW_SQL.review}), 0) AS review, COALESCE(SUM(${VIEW_SQL.returned}), 0) AS returned,
               COALESCE(SUM(${VIEW_SQL.approved}), 0) AS approved, COUNT(*) AS \`all\`
          FROM tasks t WHERE t.assignee_id = ?`,
       [userId],
+      db,
     ),
   ]);
   return { items, total: Number(total?.n ?? 0), counts };

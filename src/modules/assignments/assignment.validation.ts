@@ -14,7 +14,6 @@ export const assignmentBodySchema = z
     team_role: z.enum(TEAM_ROLES, "Choose a team role"),
     valid_from: z.iso.date("Choose a start date"),
     valid_to: optionalDate,
-    journl_access: z.boolean().default(false),
     /** Active assignment on the same client that this one takes over; it is ended in the same transaction. */
     replaces_id: z.coerce.number().int().positive().nullish(),
   })
@@ -23,7 +22,6 @@ export const assignmentBodySchema = z
 export const assignmentUpdateSchema = z
   .object({
     valid_to: optionalDate.optional(),
-    journl_access: z.boolean().optional(),
   })
   .refine((v) => Object.keys(v).length > 0, "Nothing to update");
 

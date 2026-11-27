@@ -5,7 +5,6 @@ export interface StaffGroupMember {
   full_name: string;
   email: string;
   team_role: TeamRole;
-  journl_access: boolean;
   /** False when the person is no longer an active, verified accountant: they're skipped when the group is assigned. */
   assignable: boolean;
 }

@@ -127,8 +127,8 @@ export async function insertRequest(
 
 /** An active assignment on this client (the team member a client wants replaced). */
 export const activeTeamAssignment = (clientId: number, assignmentId: number) =>
-  queryOne<{ id: number; user_id: number; full_name: string; email: string; team_role: string; journl_access: 0 | 1 }>(
-    `SELECT a.id, a.user_id, u.full_name, u.email, a.team_role, a.journl_access
+  queryOne<{ id: number; user_id: number; full_name: string; email: string; team_role: string }>(
+    `SELECT a.id, a.user_id, u.full_name, u.email, a.team_role
        FROM assignments a JOIN users u ON u.id = a.user_id
       WHERE a.id = ? AND a.client_id = ? AND ${activeAssignmentSql("a")}`,
     [assignmentId, clientId],

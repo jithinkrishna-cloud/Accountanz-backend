@@ -87,8 +87,7 @@ export async function decide(actor: AuthUser, id: number, input: DecisionInput) 
   if (r.status !== "pending") throw AppError.conflict("This request has already been answered or withdrawn");
   // Approve and assign: create the assignment first, so a failure (not verified, already on the team in that role)
   // leaves the request waiting rather than approved with nobody assigned.
-  // Replace: approving hands over (the same as Assignments → Replace): the old assignment ends, the newcomer starts in
-  // the same role with the same JournL access, and their JournL feature permissions carry over.
+  // Replace: approving hands over (the same as Assignments → Replace): the old assignment ends, the newcomer starts in the same role.
   const replacing = r.kind === "replace" && input.decision === "approved";
   const replaced = replacing && r.replaces_assignment_id ? await repo.activeTeamAssignment(r.client_id, r.replaces_assignment_id) : null;
   if (replacing && !replaced) {
@@ -104,7 +103,6 @@ export async function decide(actor: AuthUser, id: number, input: DecisionInput) 
       team_role: replaced ? (replaced.team_role as typeof input.assign.team_role) : input.assign.team_role,
       valid_from: input.assign.valid_from,
       valid_to: input.assign.valid_to,
-      journl_access: replaced ? Boolean(replaced.journl_access) : false,
       replaces_id: replaced?.id ?? null,
     });
     assignmentId = created.id;

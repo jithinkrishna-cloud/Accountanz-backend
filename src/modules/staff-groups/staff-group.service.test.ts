@@ -53,7 +53,6 @@ const member = (over: Partial<StaffGroupMember>): StaffGroupMember => ({
   full_name: "Meera Joshi",
   email: "meera@example.test",
   team_role: "finance_manager",
-  journl_access: false,
   assignable: true,
   ...over,
 });
@@ -69,9 +68,9 @@ const group = (members: StaffGroupMember[]): StaffGroupRow => ({
 });
 
 const meera = member({});
-const arun = member({ user_id: 11, full_name: "Arun Menon", team_role: "bookkeeper", journl_access: true });
+const arun = member({ user_id: 11, full_name: "Arun Menon", team_role: "bookkeeper" });
 const dates = { client_id: 22, valid_from: "2026-11-21", valid_to: null };
-const input = { name: "Team A", description: null, members: [{ user_id: 10, team_role: "finance_manager" as const, journl_access: false }] };
+const input = { name: "Team A", description: null, members: [{ user_id: 10, team_role: "finance_manager" as const }] };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -86,18 +85,18 @@ beforeEach(() => {
 });
 
 describe("assignGroup", () => {
-  it("creates one assignment per member, with each member's role and JournL setting, tagged with the group", async () => {
+  it("creates one assignment per member, with each member's role, tagged with the group", async () => {
     m.findGroup.mockResolvedValue(group([meera, arun]));
 
     const r = await service.assignGroup(actor, 5, dates);
 
     expect(m.insertAssignment).toHaveBeenCalledTimes(2);
     expect(m.insertAssignment).toHaveBeenCalledWith(
-      { client_id: 22, user_id: 10, team_role: "finance_manager", valid_from: "2026-11-21", valid_to: null, journl_access: false },
+      { client_id: 22, user_id: 10, team_role: "finance_manager", valid_from: "2026-11-21", valid_to: null },
       m.conn,
       5,
     );
-    expect(m.insertAssignment).toHaveBeenCalledWith(expect.objectContaining({ user_id: 11, team_role: "bookkeeper", journl_access: true }), m.conn, 5);
+    expect(m.insertAssignment).toHaveBeenCalledWith(expect.objectContaining({ user_id: 11, team_role: "bookkeeper" }), m.conn, 5);
     expect(r).toMatchObject({ client_id: 22, client_name: "techo", skipped: [] });
     expect(r.created.map((c) => c.full_name)).toEqual(["Meera Joshi", "Arun Menon"]);
     // One entry per assignment plus one for the group.

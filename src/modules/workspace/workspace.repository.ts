@@ -93,8 +93,8 @@ export const activeEngagement = (clientId: number) =>
   );
 
 export const clientTeam = (clientId: number) =>
-  query<{ user_id: number; full_name: string; email: string; team_role: string; journl_access: 0 | 1 }>(
-    `SELECT u.id AS user_id, u.full_name, u.email, a.team_role, a.journl_access FROM assignments a JOIN users u ON u.id = a.user_id
+  query<{ user_id: number; full_name: string; email: string; team_role: string }>(
+    `SELECT u.id AS user_id, u.full_name, u.email, a.team_role FROM assignments a JOIN users u ON u.id = a.user_id
       WHERE a.client_id = ? AND ${activeAssignmentSql("a")} ORDER BY FIELD(a.team_role, 'cfo', 'finance_manager', 'reviewer', 'bookkeeper'), u.full_name`,
     [clientId],
   );

@@ -16,7 +16,7 @@ const PHASE = `CASE
 const SELECT = `
   SELECT a.id, a.client_id, COALESCE(c.trade_name, c.legal_name) AS client_name, c.status AS client_status,
          a.user_id, u.full_name, u.email, u.portal_role, a.team_role, a.valid_from, a.valid_to, a.status,
-         ${PHASE} AS phase, a.journl_access, a.replaced_by_assignment_id, ru.full_name AS replaced_by_name,
+         ${PHASE} AS phase, a.replaced_by_assignment_id, ru.full_name AS replaced_by_name,
          a.source_group_id, sg.name AS source_group_name, a.created_at
     FROM assignments a
     JOIN clients c ON c.id = a.client_id
@@ -25,7 +25,7 @@ const SELECT = `
     LEFT JOIN users ru ON ru.id = ra.user_id
     LEFT JOIN staff_groups sg ON sg.id = a.source_group_id`;
 
-const toRow = (r: AssignmentRow): AssignmentRow => ({ ...r, journl_access: Boolean(r.journl_access) });
+const toRow = (r: AssignmentRow): AssignmentRow => r;
 
 export async function listAssignments(q: AssignmentListQuery): Promise<Paged<AssignmentRow>> {
   const where: string[] = [];
@@ -67,11 +67,10 @@ export interface LockedAssignment {
   team_role: TeamRole;
   valid_from: string;
   status: AssignmentStatus;
-  journl_access: boolean;
 }
 
 export function lockAssignment(id: number, db: PoolConnection) {
-  return queryOne<LockedAssignment>(`SELECT id, client_id, user_id, team_role, valid_from, status, journl_access = 1 AS journl_access FROM assignments WHERE id = ? FOR UPDATE`, [id], db).then((r) => r && { ...r, journl_access: Boolean(r.journl_access) });
+  return queryOne<LockedAssignment>(`SELECT id, client_id, user_id, team_role, valid_from, status FROM assignments WHERE id = ? FOR UPDATE`, [id], db);
 }
 
 export function findActiveDuplicate(input: Pick<AssignmentInput, "client_id" | "user_id" | "team_role">, exceptId: number, db: PoolConnection) {
@@ -91,20 +90,20 @@ export function findAssignableStaff(userId: number) {
 }
 
 export async function insertAssignment(
-  input: Pick<AssignmentInput, "client_id" | "user_id" | "team_role" | "valid_from" | "valid_to" | "journl_access">,
+  input: Pick<AssignmentInput, "client_id" | "user_id" | "team_role" | "valid_from" | "valid_to">,
   db: Db = pool,
   sourceGroupId: number | null = null,
 ): Promise<number> {
   const r = await execute(
-    `INSERT INTO assignments (client_id, user_id, team_role, valid_from, valid_to, status, journl_access, source_group_id) VALUES (?, ?, ?, ?, ?, 'active', ?, ?)`,
-    [input.client_id, input.user_id, input.team_role, input.valid_from, input.valid_to, input.journl_access, sourceGroupId],
+    `INSERT INTO assignments (client_id, user_id, team_role, valid_from, valid_to, status, source_group_id) VALUES (?, ?, ?, ?, ?, 'active', ?)`,
+    [input.client_id, input.user_id, input.team_role, input.valid_from, input.valid_to, sourceGroupId],
     db,
   );
   return r.insertId;
 }
 
 export async function updateAssignment(id: number, input: AssignmentUpdateInput, db: Db = pool) {
-  const keys = (["valid_to", "journl_access"] as const).filter((k) => input[k] !== undefined);
+  const keys = (["valid_to"] as const).filter((k) => input[k] !== undefined);
   if (!keys.length) return;
   await execute(`UPDATE assignments SET ${keys.map((k) => `${k} = ?`).join(", ")} WHERE id = ?`, [...keys.map((k) => input[k] ?? null), id], db);
 }
@@ -115,8 +114,8 @@ export async function updateAssignment(id: number, input: AssignmentUpdateInput,
  */
 /** Every assignment still marked active for a person (current and future-dated), locked for ending. */
 export function lockActiveForUser(userId: number, db: PoolConnection) {
-  return query<{ id: number; client_id: number; team_role: string; journl_access: 0 | 1 }>(
-    `SELECT id, client_id, team_role, journl_access FROM assignments WHERE user_id = ? AND status = 'active' FOR UPDATE`,
+  return query<{ id: number; client_id: number; team_role: string }>(
+    `SELECT id, client_id, team_role FROM assignments WHERE user_id = ? AND status = 'active' FOR UPDATE`,
     [userId],
     db,
   );

@@ -55,7 +55,7 @@ export async function createAssignment(actor: AuthUser, input: AssignmentInput) 
         entityType: "Assignment",
         entityId: newId,
         clientId: input.client_id,
-        details: `${staff.full_name} as ${humanize(input.team_role).toLowerCase()}, ${period}${input.journl_access ? ", JournL access" : ""}${replaced ? `; replaces #${replaced.id}` : ""}`,
+        details: `${staff.full_name} as ${humanize(input.team_role).toLowerCase()}, ${period}${replaced ? `; replaces #${replaced.id}` : ""}`,
       },
       conn,
     );
@@ -79,7 +79,6 @@ export async function updateAssignment(actor: AuthUser, id: number, input: Assig
     await onClientTeamChanged(actor, a.client_id, conn);
     const parts = [
       input.valid_to !== undefined && `end date ${input.valid_to ?? "open"}`,
-      input.journl_access !== undefined && `JournL access ${input.journl_access ? "on" : "off"}`,
     ].filter(Boolean);
     await recordAudit(actor, { action: "Assignment updated", entityType: "Assignment", entityId: id, clientId: a.client_id, details: parts.join(", ") }, conn);
   });
