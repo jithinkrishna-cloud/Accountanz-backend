@@ -185,3 +185,92 @@ export const groupMembers = () =>
        FROM staff_groups g JOIN staff_group_members m ON m.group_id = g.id
       ORDER BY g.name`,
   );
+
+// ───────────────────────────── Person details ─────────────────────────────
+
+/** Contact and profile facts for the person page (no bank details). */
+export const profile = (userId: number) =>
+  queryOne<{ phone: string | null; verification_status: string; expertise: string[] | null; hourly_rate: string | null; created_at: string; last_login_at: string | null }>(
+    `SELECT u.phone, sp.verification_status, sp.expertise, sp.hourly_rate, u.created_at, u.last_login_at
+       FROM users u JOIN staff_profiles sp ON sp.user_id = u.id WHERE u.id = ?`,
+    [userId],
+  );
+
+export const memberGroups = (userId: number) =>
+  query<{ group_id: number; name: string; team_role: string }>(
+    `SELECT g.id AS group_id, g.name, m.team_role FROM staff_group_members m JOIN staff_groups g ON g.id = m.group_id
+      WHERE m.user_id = ? ORDER BY g.name`,
+    [userId],
+  );
+
+/** Every assignment the person has had: current and upcoming first, then the most recent ended ones. */
+export const assignmentHistory = (userId: number) =>
+  query<{
+    id: number;
+    client_id: number;
+    client_name: string;
+    team_role: string;
+    valid_from: string;
+    valid_to: string | null;
+    phase: "current" | "scheduled" | "expired" | "ended";
+    source_group_name: string | null;
+  }>(
+    `SELECT a.id, a.client_id, COALESCE(c.trade_name, c.legal_name) AS client_name, a.team_role,
+            DATE_FORMAT(a.valid_from, '%Y-%m-%d') AS valid_from, DATE_FORMAT(a.valid_to, '%Y-%m-%d') AS valid_to,
+            CASE WHEN a.status = 'ended' THEN 'ended'
+                 WHEN a.valid_from > CURDATE() THEN 'scheduled'
+                 WHEN a.valid_to IS NOT NULL AND a.valid_to < CURDATE() THEN 'expired'
+                 ELSE 'current' END AS phase,
+            sg.name AS source_group_name
+       FROM assignments a
+       JOIN clients c ON c.id = a.client_id
+       LEFT JOIN staff_groups sg ON sg.id = a.source_group_id
+      WHERE a.user_id = ?
+      ORDER BY FIELD(phase, 'current', 'scheduled', 'expired', 'ended'), a.valid_from DESC
+      LIMIT 100`,
+    [userId],
+  );
+
+export const TASK_VIEWS = ["open", "overdue", "review", "returned", "approved", "all"] as const;
+export type TaskView = (typeof TASK_VIEWS)[number];
+
+const VIEW_SQL: Record<TaskView, string> = {
+  open: `t.status IN ${OPEN}`,
+  overdue: `t.status IN ${OPEN} AND t.due_date < CURDATE()`,
+  review: `t.status = 'submitted'`,
+  returned: `t.status = 'returned'`,
+  approved: `t.status = 'approved'`,
+  all: `1 = 1`,
+};
+
+/** One page of the person's tasks for a view, with how many tasks each view holds. */
+export async function personTasks(userId: number, q: { view: TaskView; q?: string; clientId?: number; page: number; pageSize: number }) {
+  const where = ["t.assignee_id = ?", VIEW_SQL[q.view]];
+  const params: Param[] = [userId];
+  if (q.q) (where.push("(t.title LIKE ? OR c.legal_name LIKE ? OR c.trade_name LIKE ?)"), params.push(`%${q.q}%`, `%${q.q}%`, `%${q.q}%`));
+  if (q.clientId) (where.push("t.client_id = ?"), params.push(q.clientId));
+  const whereSql = where.join(" AND ");
+  const [items, total, counts] = await Promise.all([
+    query<{ id: number; title: string; client_id: number; client_name: string; period: string; status: string; due_date: string | null; overdue: number; reviewer_name: string | null; minutes: number; updated_at: string }>(
+      `SELECT t.id, t.title, t.client_id, COALESCE(c.trade_name, c.legal_name) AS client_name, t.period, t.status,
+              DATE_FORMAT(t.due_date, '%Y-%m-%d') AS due_date, (t.status IN ${OPEN} AND t.due_date < CURDATE()) AS overdue,
+              r.full_name AS reviewer_name,
+              (SELECT COALESCE(SUM(w.minutes), 0) FROM work_logs w WHERE w.task_id = t.id AND w.user_id = t.assignee_id) AS minutes,
+              t.updated_at
+         FROM tasks t JOIN clients c ON c.id = t.client_id LEFT JOIN users r ON r.id = t.reviewer_id
+        WHERE ${whereSql}
+        ORDER BY overdue DESC, (t.status = 'approved'), t.due_date IS NULL, t.due_date, t.id DESC
+        LIMIT ? OFFSET ?`,
+      [...params, q.pageSize, (q.page - 1) * q.pageSize],
+    ),
+    queryOne<{ n: number }>(`SELECT COUNT(*) AS n FROM tasks t JOIN clients c ON c.id = t.client_id WHERE ${whereSql}`, params),
+    queryOne<Record<TaskView, number>>(
+      `SELECT COALESCE(SUM(${VIEW_SQL.open}), 0) AS open, COALESCE(SUM(${VIEW_SQL.overdue}), 0) AS overdue,
+              COALESCE(SUM(${VIEW_SQL.review}), 0) AS review, COALESCE(SUM(${VIEW_SQL.returned}), 0) AS returned,
+              COALESCE(SUM(${VIEW_SQL.approved}), 0) AS approved, COUNT(*) AS \`all\`
+         FROM tasks t WHERE t.assignee_id = ?`,
+      [userId],
+    ),
+  ]);
+  return { items, total: Number(total?.n ?? 0), counts };
+}

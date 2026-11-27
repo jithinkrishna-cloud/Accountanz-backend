@@ -47,12 +47,15 @@ export async function listProgress(period = currentPeriod()) {
 /** One person's progress: headline numbers, per-client work, a 6-month trend, open tasks and recent reviews. */
 export async function personProgress(userId: number, period = currentPeriod()) {
   const months = recentPeriods(new Date(), TREND_MONTHS).reverse();
-  const [row, clients, trend, open, reviews] = await Promise.all([
+  const [row, clients, trend, open, reviews, prof, groups, assignments] = await Promise.all([
     repo.findSummary(userId, monthRange(period)),
     repo.clientBreakdown(userId, period),
     repo.monthlyTrend(userId, monthRange(months[0]!).start, monthRange(months.at(-1)!).end),
     repo.openTasks(userId),
     repo.recentReviews(userId),
+    repo.profile(userId),
+    repo.memberGroups(userId),
+    repo.assignmentHistory(userId),
   ]);
   if (!row) throw AppError.notFound("Team member");
 
@@ -64,6 +67,16 @@ export async function personProgress(userId: number, period = currentPeriod()) {
     period,
     periods: recentPeriods(new Date(), 12),
     person: summary(row),
+    profile: prof && {
+      phone: prof.phone,
+      verification_status: prof.verification_status,
+      expertise: Array.isArray(prof.expertise) ? prof.expertise : [],
+      hourly_rate: prof.hourly_rate == null ? null : Number(prof.hourly_rate),
+      member_since: prof.created_at,
+      last_login_at: prof.last_login_at,
+    },
+    groups,
+    assignments,
     clients: clients.map((c) => ({
       client_id: c.client_id,
       client_name: c.client_name,
@@ -159,5 +172,18 @@ export async function firmProgress(period = currentPeriod()) {
         ? [{ group_id: null, name: "Not in a group", members: ungrouped.map((p) => ({ user_id: p.user_id, full_name: p.full_name })), ...totals(ungrouped.map((p) => p.user_id)) }]
         : []),
     ],
+  };
+}
+
+/** One page of a person's tasks for a view (open, overdue, review, returned, approved, all), with the count per view. */
+export async function personTaskList(userId: number, q: { view: repo.TaskView; q?: string; client_id?: number; page: number; pageSize: number }) {
+  const r = await repo.personTasks(userId, { view: q.view, q: q.q, clientId: q.client_id, page: q.page, pageSize: q.pageSize });
+  const counts = Object.fromEntries(repo.TASK_VIEWS.map((v) => [v, num(r.counts?.[v])])) as Record<repo.TaskView, number>;
+  return {
+    items: r.items.map((t) => ({ ...t, overdue: Boolean(num(t.overdue)), hours: Math.round(num(t.minutes) / 6) / 10 })),
+    total: r.total,
+    page: q.page,
+    pageSize: q.pageSize,
+    counts,
   };
 }
