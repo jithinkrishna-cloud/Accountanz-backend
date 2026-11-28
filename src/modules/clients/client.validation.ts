@@ -6,7 +6,8 @@ import { ACCOUNTING_SOFTWARE, BUSINESS_TYPES, CLIENT_STATUSES, REGISTRATION_STAT
 const optionalEmail = z.string().trim().max(255).email("Enter a valid email address").nullish().or(z.literal("")).transform((v) => (v ? v.trim().toLowerCase() : null));
 const optionalDate = z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD").nullish().or(z.literal("")).transform((v) => (v ? v : null));
 
-export const clientBodySchema = z.object({
+/** Every client field, with no defaults: defaults belong to creating a client, never to a partial update. */
+const clientFields = z.object({
   legal_name: z.string().trim().min(2, "Enter the legal name").max(200),
   trade_name: optionalText(200),
   business_type: z.enum(BUSINESS_TYPES).nullish().transform((v) => v ?? null),
@@ -18,11 +19,26 @@ export const clientBodySchema = z.object({
   primary_contact_name: optionalText(150),
   primary_contact_email: optionalEmail,
   primary_contact_phone: optionalText(30),
-  status: z.enum(CLIENT_STATUSES).default("lead"),
-  accounting_software: z.enum(ACCOUNTING_SOFTWARE).default("none"),
+  status: z.enum(CLIENT_STATUSES),
+  accounting_software: z.enum(ACCOUNTING_SOFTWARE),
 });
 
-export const clientUpdateSchema = clientBodySchema.partial().refine((v) => Object.keys(v).length > 0, "Nothing to update");
+export const clientBodySchema = clientFields.extend({
+  status: clientFields.shape.status.default("lead"),
+  accounting_software: clientFields.shape.accounting_software.default("none"),
+});
+
+/**
+ * Only the fields sent are changed. (Built from the default-free fields: with defaults, a PATCH that left out status
+ * or accounting_software would reset them to "lead" / "none".)
+ */
+export const clientUpdateSchema = clientFields.partial().refine((v) => Object.keys(v).length > 0, "Nothing to update");
+
+/** The company owner keeps their own business details up to date; only status stays with Accountanz. */
+export const portalClientUpdateSchema = clientFields
+  .omit({ status: true })
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, "Nothing to update");
 
 export const clientListQuerySchema = listQuerySchema.extend({
   status: z.enum(CLIENT_STATUSES).optional(),

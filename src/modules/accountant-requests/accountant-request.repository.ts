@@ -175,3 +175,41 @@ export async function publicAccountants(accountantId?: number): Promise<PublicAc
   );
   return rows.map((r) => ({ slug: accountantSlug(r.full_name, r.id), full_name: r.full_name, role: r.role, expertise: parseList(r.expertise), member_since: r.member_since }));
 }
+
+/**
+ * What one accountant has done for this client: the client's own data, so it can be shown on the profile. Only
+ * client-visible tasks count, and nothing about other clients is read.
+ */
+export async function historyWithClient(clientId: number, userId: number, oversees = false) {
+  const [summary, recent, assignments] = await Promise.all([
+    queryOne<{ first_day: string | null; done_total: number; month_total: number; month_done: number; open_now: number; waiting_review: number; open_requests: number; last_activity: string | null }>(
+      `SELECT (SELECT DATE_FORMAT(MIN(a.valid_from), '%Y-%m-%d') FROM assignments a WHERE a.client_id = ? AND a.user_id = ?) AS first_day,
+              COALESCE(SUM(t.status = 'approved'), 0) AS done_total,
+              COALESCE(SUM(t.period = DATE_FORMAT(CURDATE(), '%Y-%m')), 0) AS month_total,
+              COALESCE(SUM(t.period = DATE_FORMAT(CURDATE(), '%Y-%m') AND t.status = 'approved'), 0) AS month_done,
+              COALESCE(SUM(t.status IN ('todo', 'in_progress', 'returned') AND (? OR t.assignee_id = ?)), 0) AS open_now,
+              COALESCE(SUM(t.status = 'submitted'), 0) AS waiting_review,
+              (SELECT COUNT(*) FROM document_requests dr WHERE dr.client_id = ? AND dr.requested_by = ? AND dr.status = 'open') AS open_requests,
+              DATE_FORMAT(MAX(t.updated_at), '%Y-%m-%d') AS last_activity
+         FROM tasks t
+        WHERE t.client_id = ? AND t.client_visible = 1 AND (? OR t.assignee_id = ? OR t.reviewer_id = ?)`,
+      [clientId, userId, oversees, userId, clientId, userId, clientId, oversees, userId, userId],
+    ),
+    query<{ id: number; title: string; period: string; finished_on: string | null; part: "did" | "checked" | "oversaw" }>(
+      `SELECT t.id, t.title, t.period,
+              (SELECT DATE_FORMAT(MAX(tr.created_at), '%Y-%m-%d') FROM task_reviews tr WHERE tr.task_id = t.id AND tr.decision = 'approved') AS finished_on,
+              CASE WHEN t.assignee_id = ? THEN 'did' WHEN t.reviewer_id = ? THEN 'checked' ELSE 'oversaw' END AS part
+         FROM tasks t
+        WHERE t.client_id = ? AND t.client_visible = 1 AND t.status = 'approved' AND (? OR t.assignee_id = ? OR t.reviewer_id = ?)
+        ORDER BY finished_on DESC, t.id DESC LIMIT 5`,
+      [userId, userId, clientId, oversees, userId, userId],
+    ),
+    query<{ team_role: string; valid_from: string; valid_to: string | null; current: 0 | 1 }>(
+      `SELECT a.team_role, DATE_FORMAT(a.valid_from, '%Y-%m-%d') AS valid_from, DATE_FORMAT(COALESCE(a.valid_to, IF(a.status = 'ended', DATE(a.created_at), NULL)), '%Y-%m-%d') AS valid_to,
+              (${activeAssignmentSql("a")}) AS current
+         FROM assignments a WHERE a.client_id = ? AND a.user_id = ? ORDER BY a.valid_from DESC`,
+      [clientId, userId],
+    ),
+  ]);
+  return { summary, recent, assignments };
+}

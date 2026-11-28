@@ -25,6 +25,38 @@ export async function exploreOne(ctx: ClientContext, accountantId: number) {
   return a;
 }
 
+/**
+ * The profile, plus what this accountant has done for this client (the client's own work, never other clients', and
+ * still no rate, contact details or performance scores). `with_you` is null when they have never worked on this client.
+ */
+export async function exploreProfile(ctx: ClientContext, accountantId: number) {
+  const a = await exploreOne(ctx, accountantId);
+  // A CFO on the account oversees all of its work (as on My Accounting Team), so their numbers cover every task.
+  const oversees = a.team_roles.includes("cfo");
+  const h = await repo.historyWithClient(ctx.clientId, accountantId, oversees);
+  const n = (v: unknown) => Number(v ?? 0);
+  const s = h.summary;
+  const worked = h.assignments.length > 0;
+  return {
+    ...a,
+    with_you: worked
+      ? {
+          oversees,
+          since: s?.first_day ?? null,
+          done_total: n(s?.done_total),
+          month_total: n(s?.month_total),
+          month_done: n(s?.month_done),
+          open_now: n(s?.open_now),
+          waiting_review: n(s?.waiting_review),
+          open_requests: n(s?.open_requests),
+          last_activity: s?.last_activity ?? null,
+          recent: h.recent,
+          assignments: h.assignments.map((x) => ({ ...x, current: Boolean(x.current) })),
+        }
+      : null,
+  };
+}
+
 export const myRequests = (ctx: ClientContext) => repo.clientRequests(ctx.clientId);
 
 /** Client owner asks Accountanz for a specific accountant. One open request per accountant at a time. */

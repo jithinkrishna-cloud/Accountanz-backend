@@ -75,6 +75,10 @@ export const financialProfile = (clientId: number) =>
     [clientId],
   );
 
+/** The company's most recent onboarding case (where its service requirements live). */
+export const latestCaseId = async (clientId: number) =>
+  (await queryOne<{ id: number }>(`SELECT id FROM onboarding_cases WHERE client_id = ? ORDER BY id DESC LIMIT 1`, [clientId]))?.id ?? null;
+
 /** Requirements captured on the company's most recent onboarding case. */
 export const serviceRequirements = (clientId: number) =>
   queryOne<Record<string, unknown>>(
@@ -330,8 +334,9 @@ export const memberOnTeam = (clientId: number, userId: number) =>
 
 /** Client-visible tasks the person does or checks (or, for a CFO who oversees the account, every task), open work first. */
 export const memberTasks = (clientId: number, userId: number, oversees = false) =>
-  query<{ id: number; title: string; description: string | null; period: string; status: string; due_date: string | null; checklist: { text: string; done: boolean }[]; assignee_id: number | null; handled_by: string | null; reviewer_id: number | null; checked_by: string | null }>(
-    `SELECT t.id, t.title, t.description, t.period, t.status, t.due_date, t.checklist, t.assignee_id, a.full_name AS handled_by, t.reviewer_id, r.full_name AS checked_by
+  query<{ id: number; title: string; description: string | null; period: string; status: string; due_date: string | null; checklist: { text: string; done: boolean }[]; assignee_id: number | null; handled_by: string | null; reviewer_id: number | null; checked_by: string | null; created_by_client: 0 | 1 }>(
+    `SELECT t.id, t.title, t.description, t.period, t.status, t.due_date, t.checklist, t.assignee_id, a.full_name AS handled_by, t.reviewer_id, r.full_name AS checked_by,
+            EXISTS (SELECT 1 FROM client_users cu WHERE cu.user_id = t.created_by AND cu.client_id = t.client_id) AS created_by_client
        FROM tasks t LEFT JOIN users a ON a.id = t.assignee_id LEFT JOIN users r ON r.id = t.reviewer_id
       WHERE t.client_id = ? AND t.client_visible = 1 AND (? OR t.assignee_id = ? OR t.reviewer_id = ?)
       ORDER BY t.status = 'approved', t.period DESC, t.due_date IS NULL, t.due_date, t.id

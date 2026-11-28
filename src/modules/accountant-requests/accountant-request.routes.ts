@@ -10,7 +10,7 @@ const id = (res: Response) => (res.locals.params as IdParam).id;
 /** Client portal (mounted under /api/app, after the company context is resolved). */
 export const exploreRoutes = Router();
 exploreRoutes.get("/explore/accountants", async (_req: Request, res: Response) => void res.json({ items: await service.explore(ctx(res)) }));
-exploreRoutes.get("/explore/accountants/:id", validate({ params: idParam }), async (_req, res) => void res.json(await service.exploreOne(ctx(res), id(res))));
+exploreRoutes.get("/explore/accountants/:id", validate({ params: idParam }), async (_req, res) => void res.json(await service.exploreProfile(ctx(res), id(res))));
 exploreRoutes.post("/explore/accountants/:id/requests", validate({ params: idParam, body: accountantRequestSchema }), async (req, res) =>
   void res.status(201).json(await service.request(req.user!, ctx(res), id(res), req.body)),
 );

@@ -2,15 +2,26 @@ import { z } from "zod";
 import { optionalText, periodSchema } from "../../utils/zod-helpers.js";
 import { mentionsSchema } from "../communication/communication.validation.js";
 import { DOCUMENT_CATEGORIES } from "../documents/document.types.js";
-import { clientBodySchema } from "../clients/client.validation.js";
+import { financialProfileSchema, portalClientUpdateSchema, stakeholderSchema } from "../clients/client.validation.js";
+import { serviceRequirementsSchema } from "../onboarding/onboarding.validation.js";
 import { NOTIFICATION_PREFS } from "./client-portal.types.js";
 
 /**
  * What a company owner may change about their own company from the portal (Settings → business details).
- * Legal name, GSTIN, PAN and everything else are admin-only; clients ask for those via "Request correction".
- * Same rules as the admin form. A blank value clears the field.
+ * Everything on the client record except status (company names, type, registrations, address, accounting software
+ * and primary contact), which stays with Accountanz. Same rules as the admin form; a blank value clears the field. Defined next to the client schemas so it
+ * shares their default-free fields.
  */
-export const portalClientUpdateSchema = clientBodySchema.pick({ trade_name: true, state: true, address: true }).partial();
+export { portalClientUpdateSchema };
+
+/*
+ * The rest of My Business, as the portal sees it. Stakeholders' personal identifiers and contact details and the team's
+ * internal notes are never sent to the portal, so they aren't accepted from it either; saves keep the stored values.
+ */
+export const portalStakeholderSchema = stakeholderSchema.pick({ stakeholder_type: true, full_name: true, designation: true, ownership_percentage: true, is_primary: true });
+export const portalFinancialProfileSchema = financialProfileSchema.omit({ notes: true });
+export const portalServicesSchema = serviceRequirementsSchema.omit({ notes: true });
+export const portalStakeholderParams = z.object({ id: z.coerce.number().int().positive() });
 
 export const uploadMetaSchema = z.object({
   category: z.enum(DOCUMENT_CATEGORIES).default("other"),

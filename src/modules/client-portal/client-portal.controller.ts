@@ -6,6 +6,12 @@ import * as service from "./client-portal.service.js";
 import * as clientService from "../clients/client.service.js";
 import * as taskService from "../tasks/task.service.js";
 import * as folderService from "../document-folders/document-folder.service.js";
+import * as onboardingService from "../onboarding/onboarding.service.js";
+import type { ServiceRequirementsInput } from "../onboarding/onboarding.validation.js";
+import type { CompanyTaxDetailsInput, FinancialProfileInput, StakeholderInput } from "../clients/client.validation.js";
+import * as repo from "./client-portal.repository.js";
+import * as clientRepo from "../clients/client.repository.js";
+import * as onboardingRepo from "../onboarding/onboarding.repository.js";
 import type { ClientContext } from "./client-portal.types.js";
 import type { ClientUpdateInput } from "../clients/client.validation.js";
 import type { PortalClientUpdateInput, UploadMeta } from "./client-portal.validation.js";
@@ -107,10 +113,66 @@ export const updateSettings = async (req: Request, res: Response) => void res.js
 export async function updateClient(req: Request, res: Response) {
   const c = ctx(res);
   if (c.role !== "owner") throw AppError.forbidden("Only the company owner can change business details");
-  // Body is already validated by portalClientUpdateSchema: only trade name, state and address survive.
+  // Body is already validated by portalClientUpdateSchema: only the owner-editable business details survive.
+  // updateClient rejects a GSTIN another client uses, mirrors PAN/GSTIN to the tax details and writes the audit entry.
   const input = req.body as PortalClientUpdateInput;
   if (Object.keys(input).length === 0) throw new AppError("VALIDATION_ERROR", "Nothing to update");
   await clientService.updateClient(req.user!, c.clientId, input as ClientUpdateInput);
+  res.json(await service.getBusiness(c));
+}
+
+/** The rest of My Business is the owner's to keep up to date too. Each save reuses the admin rules and is audited. */
+function ownerOf(res: Response) {
+  const c = ctx(res);
+  if (c.role !== "owner") throw AppError.forbidden("Only the company owner can change business details");
+  return c;
+}
+
+export async function saveTaxDetails(req: Request, res: Response) {
+  const c = ownerOf(res);
+  await clientService.saveTaxDetails(req.user!, c.clientId, req.body as CompanyTaxDetailsInput);
+  res.json(await service.getBusiness(c));
+}
+
+type PortalStakeholder = Pick<StakeholderInput, "stakeholder_type" | "full_name" | "designation" | "ownership_percentage" | "is_primary">;
+
+export async function addStakeholder(req: Request, res: Response) {
+  const c = ownerOf(res);
+  const input = req.body as PortalStakeholder;
+  await clientService.addStakeholder(req.user!, c.clientId, { ...input, email: null, phone: null, pan_number: null, din_number: null, address: null });
+  res.json(await service.getBusiness(c));
+}
+
+/** Keeps the person's PAN, DIN and contact details, which the portal never sees. */
+export async function updateStakeholder(req: Request, res: Response) {
+  const c = ownerOf(res);
+  const id = idOf(res);
+  const existing = await clientRepo.findStakeholder(c.clientId, id);
+  if (!existing) throw AppError.notFound("Owner or director");
+  const { email, phone, pan_number, din_number, address } = existing;
+  await clientService.updateStakeholder(req.user!, c.clientId, id, { ...(req.body as PortalStakeholder), email, phone, pan_number, din_number, address });
+  res.json(await service.getBusiness(c));
+}
+
+export async function removeStakeholder(req: Request, res: Response) {
+  const c = ownerOf(res);
+  await clientService.removeStakeholder(req.user!, c.clientId, idOf(res));
+  res.json(await service.getBusiness(c));
+}
+
+export async function saveFinancialProfile(req: Request, res: Response) {
+  const c = ownerOf(res);
+  const notes = (await clientRepo.getFinancialProfile(c.clientId))?.notes ?? null; // the team's notes stay as they are
+  await clientService.saveFinancialProfile(req.user!, c.clientId, { ...(req.body as Omit<FinancialProfileInput, "notes">), notes });
+  res.json(await service.getBusiness(c));
+}
+
+export async function saveServices(req: Request, res: Response) {
+  const c = ownerOf(res);
+  const caseId = await repo.latestCaseId(c.clientId);
+  if (!caseId) throw AppError.conflict("Your services haven't been set up yet. Message your accounting team to add them.");
+  const notes = (await onboardingRepo.getServiceRequirements(caseId))?.notes ?? null;
+  await onboardingService.saveServiceRequirements(req.user!, caseId, { ...(req.body as Omit<ServiceRequirementsInput, "notes">), notes });
   res.json(await service.getBusiness(c));
 }
 

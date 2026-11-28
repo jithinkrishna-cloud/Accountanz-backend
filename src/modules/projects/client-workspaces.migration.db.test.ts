@@ -47,8 +47,13 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("client workspaces migration 0
     }
   });
 
-  it("keeps existing members as manual", async () => {
-    const [rows] = await pool.query<any[]>("SELECT COUNT(*) AS n FROM project_space_members WHERE source <> 'manual'");
+  // Existing members were migrated as 'manual'; after that the client-team sync adds 'client_team' rows, but only ever
+  // to a client's primary space (internal and project spaces are managed by hand).
+  it("only primary client spaces carry client_team members", async () => {
+    const [rows] = await pool.query<any[]>(
+      `SELECT COUNT(*) AS n FROM project_space_members m JOIN project_spaces s ON s.id = m.space_id
+        WHERE m.source = 'client_team' AND s.kind <> 'client_primary'`,
+    );
     expect(Number(rows[0].n)).toBe(0);
   });
 });

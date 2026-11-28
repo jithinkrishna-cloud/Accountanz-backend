@@ -11,7 +11,8 @@ import * as c from "./client-portal.controller.js";
 import { requireContext } from "./client-portal.service.js";
 import { exploreRoutes } from "../accountant-requests/accountant-request.routes.js";
 import { messageParam } from "../communication/communication.validation.js";
-import { approvalDecisionSchema, clientTaskSchema, meetingRequestSchema, newThreadSchema, portalClientUpdateSchema, replySchema, settingsSchema, tasksQuerySchema, uploadMetaSchema } from "./client-portal.validation.js";
+import { companyTaxDetailsSchema } from "../clients/client.validation.js";
+import { approvalDecisionSchema, clientTaskSchema, meetingRequestSchema, newThreadSchema, portalClientUpdateSchema, portalFinancialProfileSchema, portalServicesSchema, portalStakeholderParams, portalStakeholderSchema, replySchema, settingsSchema, tasksQuerySchema, uploadMetaSchema } from "./client-portal.validation.js";
 import { startInvoicePayment } from "../payments/easebuzz/easebuzz.service.js";
 import { attachDocumentSchema, createFolderSchema, moveDocumentSchema, renameFolderSchema, shareFolderSchema } from "../document-folders/document-folder.validation.js";
 
@@ -83,3 +84,9 @@ clientPortalRoutes.post("/package-changes/:id/withdraw", validate({ params: idPa
 clientPortalRoutes.get("/settings", c.settings);
 clientPortalRoutes.patch("/settings", validate({ body: settingsSchema }), c.updateSettings);
 clientPortalRoutes.patch("/client", validate({ body: portalClientUpdateSchema }), c.updateClient);
+clientPortalRoutes.put("/business/tax-details", validate({ body: companyTaxDetailsSchema }), c.saveTaxDetails);
+clientPortalRoutes.post("/business/stakeholders", validate({ body: portalStakeholderSchema }), c.addStakeholder);
+clientPortalRoutes.patch("/business/stakeholders/:id", validate({ params: portalStakeholderParams, body: portalStakeholderSchema }), c.updateStakeholder);
+clientPortalRoutes.delete("/business/stakeholders/:id", validate({ params: portalStakeholderParams }), c.removeStakeholder);
+clientPortalRoutes.put("/business/financial-profile", validate({ body: portalFinancialProfileSchema }), c.saveFinancialProfile);
+clientPortalRoutes.put("/business/services", validate({ body: portalServicesSchema }), c.saveServices);
